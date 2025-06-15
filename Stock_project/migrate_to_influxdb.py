@@ -2,7 +2,7 @@ import os
 import logging
 from pathlib import Path
 from stocks.firebase_client import get_stock_data, get_stock_history
-from stocks.influxdb_client import InfluxDBHandler
+from stocks.influx_client import InfluxDBHandler
 from datetime import datetime
 
 # Set up logging

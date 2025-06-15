@@ -10,30 +10,32 @@
                 Error: {{ error }}
             </div>
             {% endif %}
-            <form method="get" class="form-inline">
-                <select name="symbol" class="form-control mr-2" onchange="this.form.submit()">
-                    {% if symbols %}
-                        {% for s in symbols %}
-                        <option value="{{ s }}" {% if s == symbol %}selected{% endif %}>{{ s }}</option>
-                        {% endfor %}
-                    {% else %}
-                        <option value="">No symbols available</option>
-                    {% endif %}
+            <form method="get" class="form-inline" id="dashboardForm">
+                <!-- Symbol multi-select -->
+                <select name="symbols" multiple class="form-control mr-2">
+                    {% for s in all_symbols %}
+                    <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
+                    {% endfor %}
                 </select>
-                <select name="days" class="form-control mr-2" onchange="this.form.submit()">
-                    <option value="1000" {% if days == 1000 %}selected{% endif %}>All Data</option>
-                    <option value="7" {% if days == 7 %}selected{% endif %}>7 days</option>
-                    <option value="30" {% if days == 30 %}selected{% endif %}>30 days</option>
-                    <option value="90" {% if days == 90 %}selected{% endif %}>90 days</option>
-                    <option value="180" {% if days == 180 %}selected{% endif %}>180 days</option>
-                    <option value="365" {% if days == 365 %}selected{% endif %}>1 year</option>
+
+                <!-- Field selector -->
+                <select name="field" class="form-control mr-2">
+                    {% for f in fields %}
+                    <option value="{{ f }}" {% if f == selected_field %}selected{% endif %}>{{ f|capfirst }}</option>
+                    {% endfor %}
                 </select>
+
+                <!-- Date range -->
+                <input type="date" name="start" class="form-control mr-2" value="{{ start_date }}" min="2021-01-03">
+                <input type="date" name="end" class="form-control mr-2" value="{{ end_date }}">
+
+                <button type="submit" class="btn btn-primary">Update</button>
             </form>
             <p class="text-muted mt-2">Showing data from {{ start_date }} to {{ end_date }}</p>
-            {% if data %}
-                <p class="text-muted">Number of data points: {{ data|length }}</p>
+            {% if data_json and data_json != '{}' %}
+                <p class="text-muted">Loaded data for {{ selected_symbols|length }} symbol{{ selected_symbols|length|pluralize }}</p>
             {% else %}
-                <p class="text-warning">No data available for the selected period</p>
+                <p class="text-warning">No data available for the selected parameters</p>
             {% endif %}
         </div>
     </div>
@@ -42,19 +44,8 @@
         <div class="col">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">Price Chart</h5>
+                    <h5 class="card-title">{{ selected_field|capfirst }} Chart</h5>
                     <canvas id="priceChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mt-4">
-        <div class="col">
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Volume Chart</h5>
-                    <canvas id="volumeChart"></canvas>
                 </div>
             </div>
         </div>
@@ -62,113 +53,65 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
 <script>
-// Initialize data from Django template
-const chartData = JSON.parse('{{ data|safe }}');
-console.log('Chart data:', chartData);
+const rawData = JSON.parse('{{ data_json|escapejs }}');
+console.log('rawData', rawData);
 
-// Price Chart
-{% if data %}
-new Chart(document.getElementById('priceChart'), {
-    type: 'line',
-    data: {
-        labels: chartData.map(d => d.date),
-        datasets: [{
-            label: 'Open',
-            data: chartData.map(d => d.open),
-            borderColor: 'rgb(75, 192, 192)',
-            tension: 0.1,
-            fill: false
-        }, {
-            label: 'High',
-            data: chartData.map(d => d.high),
-            borderColor: 'rgb(255, 99, 132)',
-            tension: 0.1,
-            fill: false
-        }, {
-            label: 'Low',
-            data: chartData.map(d => d.low),
-            borderColor: 'rgb(54, 162, 235)',
-            tension: 0.1,
-            fill: false
-        }, {
-            label: 'Close',
-            data: chartData.map(d => d.close),
-            borderColor: 'rgb(153, 102, 255)',
-            tension: 0.1,
-            fill: false
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            title: {
-                display: true,
-                text: '{{ symbol }} Price History'
-            },
-            tooltip: {
-                mode: 'index',
-                intersect: false
-            }
-        },
-        scales: {
-            y: {
-                beginAtZero: false,
-                title: {
-                    display: true,
-                    text: 'Price'
-                }
-            },
-            x: {
-                title: {
-                    display: true,
-                    text: 'Date'
-                }
-            }
-        }
-    }
-});
-{% endif %}
+// Generate distinct colors for datasets
+const palette = ['#4bc0c0','#ff6384','#36a2eb','#9966ff','#ff9f40','#c9cbcf'];
 
-// Volume Chart
-{% if data %}
-new Chart(document.getElementById('volumeChart'), {
-    type: 'bar',
-    data: {
-        labels: chartData.map(d => d.date),
-        datasets: [{
-            label: 'Volume',
-            data: chartData.map(d => d.volume),
-            backgroundColor: 'rgba(75, 192, 192, 0.5)',
-            borderColor: 'rgb(75, 192, 192)',
-            borderWidth: 1
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            title: {
-                display: true,
-                text: '{{ symbol }} Trading Volume'
-            }
-        },
-        scales: {
-            y: {
-                beginAtZero: true,
-                title: {
-                    display: true,
-                    text: 'Volume'
-                }
-            },
-            x: {
-                title: {
-                    display: true,
-                    text: 'Date'
-                }
-            }
-        }
-    }
+const datasets = Object.keys(rawData).map((sym, idx) => {
+  return {
+    label: sym,
+    data: rawData[sym].map(p => ({x: p.date, y: p.value})),
+    borderColor: palette[idx % palette.length],
+    backgroundColor: palette[idx % palette.length],
+    tension: 0.1,
+    fill: false,
+    // Chart.js will parse the x ISO string into a Date automatically
+  };
 });
-{% endif %}
+console.log('datasets', datasets);
+
+const ctx = document.getElementById('priceChart').getContext('2d');
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    datasets: datasets
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      title: {
+        display: true,
+        text: '{{ selected_field|capfirst }} for Selected Symbols'
+      },
+      tooltip: {
+        mode: 'nearest',
+        intersect: false
+      }
+    },
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          unit: 'day'
+        },
+        title: {
+          display: true,
+          text: 'Date'
+        }
+      },
+      y: {
+        title: {
+          display: true,
+          text: '{{ selected_field|capfirst }}'
+        }
+      }
+    }
+  }
+});
 </script>
 {% endblock %} 

@@ -4,138 +4,130 @@ import logging
 from .services.influxdb_handler import InfluxDBHandler
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+import json
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def stock_dashboard(request):
+    """Interactive dashboard supporting multi-symbol, field, and date-range selection."""
     try:
-        # Initialize InfluxDB client
         influx_handler = InfluxDBHandler()
         client = influx_handler.client
-        
-        # Get query parameters
-        symbol = request.GET.get('symbol', 'NICL')
-        days = int(request.GET.get('days', 1000))
-        
-        logger.info(f"Requested symbol: {symbol}, days: {days}")
-        
-        # Calculate date range
-        end_date = datetime(2023, 12, 31)
-        start_date = datetime(2021, 1, 3)  # Fixed start date
-        if days < 1000:  # If user selects a specific range
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
-        
-        # Format dates for InfluxDB queries
-        start_date_str = start_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-        end_date_str = end_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-        
-        # Format dates for display
-        start_date_display = start_date.strftime('%Y-%m-%d')
-        end_date_display = end_date.strftime('%Y-%m-%d')
-        
-        logger.info(f"Date range: {start_date_str} to {end_date_str}")
-        
-        # Query for distinct symbols from stock_data measurement in the date range
-        symbols_query = f'''
-        from(bucket: "stock_data")
-            |> range(start: {start_date_str}, stop: {end_date_str})
-            |> filter(fn: (r) => r["_measurement"] == "stock_data")
-            |> filter(fn: (r) => r["_field"] == "volume")
-            |> keep(columns: ["symbol"])
+
+        # ------------------------------------------------------------
+        # 1. Handle query-string parameters
+        # ------------------------------------------------------------
+        # Multi-select list may arrive as ?symbols=AAA&symbols=BBB *or* as comma-separated
+        symbols_raw = request.GET.getlist("symbols") or []
+        if len(symbols_raw) == 1 and "," in symbols_raw[0]:
+            symbols_raw = [s.strip() for s in symbols_raw[0].split(",") if s.strip()]
+
+        selected_symbols = symbols_raw
+        selected_field = request.GET.get("field", "close")  # default to close price
+
+        # Date range: default earliest 2021-01-03 to today
+        try:
+            start_param = request.GET.get("start", "2021-01-03")
+            end_param = request.GET.get("end", datetime.utcnow().strftime("%Y-%m-%d"))
+            start_date = datetime.strptime(start_param, "%Y-%m-%d")
+            end_date = datetime.strptime(end_param, "%Y-%m-%d")
+        except ValueError:
+            # Fallback to defaults on parse error
+            start_date = datetime(2021, 1, 3)
+            end_date = datetime.utcnow()
+
+        logger.info(
+            f"Dashboard params – symbols: {selected_symbols}, field: {selected_field}, range: {start_date} → {end_date}"
+        )
+
+        # ------------------------------------------------------------
+        # 2. Discover all distinct symbols (for selector options)
+        # ------------------------------------------------------------
+        symbol_query = f"""
+        from(bucket: \"stock_data\")
+            |> range(start: 2021-01-03T00:00:00Z)
+            |> filter(fn: (r) => r[\"_measurement\"] == \"stock_data\")
+            |> keep(columns: [\"symbol\"])
             |> group()
-            |> distinct(column: "symbol")
-            |> sort(columns: ["symbol"])
-        '''
-        logger.info("\nChecking for symbols in stock_data measurement (date range)...")
-        symbols_result = client.query_api().query(symbols_query)
-        symbols = []
-        for table in symbols_result:
-            for record in table.records:
-                symbol = record.values.get('symbol')
-                if symbol:
-                    symbols.append(symbol)
-        logger.info(f"Found {len(symbols)} symbols in date range.")
-        if symbols:
-            logger.info(f"First 10 symbols: {symbols[:10]}")
-        
-        if not symbols:
-            logger.warning("No symbols found in the database")
-            return render(request, 'stock/dashboard.html', {
-                'error': 'No stock symbols found in the database',
-                'symbols': [],
-                'data': [],
-                'start_date': start_date_display,
-                'end_date': end_date_display
-            })
-        
-        # If the requested symbol is not in the list, use the first available one
-        if symbol not in symbols:
-            logger.warning(f"Requested symbol {symbol} not found, using first available: {symbols[0]}")
-            symbol = symbols[0]
-        
-        # Query for stock data
-        query = f'''
-        from(bucket: "stock_data")
-            |> range(start: {start_date_str}, stop: {end_date_str})
-            |> filter(fn: (r) => r["_measurement"] == "stock_data")
-            |> filter(fn: (r) => r["symbol"] == "{symbol}")
-            |> filter(fn: (r) => r["_field"] == "volume" or r["_field"] == "open" or r["_field"] == "high" or r["_field"] == "low" or r["_field"] == "close")
-            |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
-        '''
-        
-        logger.info(f"Executing data query for symbol {symbol}...")
-        result = client.query_api().query(query)
-        logger.info(f"Data query returned {len(result)} tables")
-        
-        # Process the results
-        data = []
-        for table in result:
-            logger.info(f"Processing data table with {len(table.records)} records")
-            for record in table.records:
-                # Format the date for display
-                date = record.values.get('_time')
-                if date:
-                    date = date.strftime('%Y-%m-%d')
-                data_point = {
-                    'date': date,
-                    'open': record.values.get('open'),
-                    'high': record.values.get('high'),
-                    'low': record.values.get('low'),
-                    'close': record.values.get('close'),
-                    'volume': record.values.get('volume'),
-                    'turnover': record.values.get('turnover')
-                }
-                data.append(data_point)
-                logger.info(f"Processed data point: {data_point}")
-        
-        logger.info(f"Total data points processed: {len(data)}")
-        
+            |> distinct(column: \"symbol\")
+            |> sort(columns: [\"symbol\"])
+        """
+        symbol_result = client.query_api().query(symbol_query)
+        all_symbols = []
+        for table in symbol_result:
+            for rec in table.records:
+                value = rec.get_value() if hasattr(rec, 'get_value') else None
+                if not value:
+                    value = rec.values.get('symbol') if isinstance(rec.values, dict) else None
+                if value:
+                    all_symbols.append(value)
+
+        # Default selected symbol list if none chosen
+        if not selected_symbols:
+            selected_symbols = all_symbols[:1]  # pick first symbol as default
+
+        # ------------------------------------------------------------
+        # 3. Fetch data for each selected symbol & field
+        # ------------------------------------------------------------
+        start_iso = start_date.strftime("%Y-%m-%dT00:00:00Z")
+        end_iso = (end_date + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z")  # inclusive
+
+        data_by_symbol = {}
+
+        for sym in selected_symbols:
+            flux = f"""
+            from(bucket: \"stock_data\")
+                |> range(start: {start_iso}, stop: {end_iso})
+                |> filter(fn: (r) => r[\"_measurement\"] == \"stock_data\")
+                |> filter(fn: (r) => r[\"symbol\"] == \"{sym}\")
+                |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\")
+                |> keep(columns:[\"_time\", \"{selected_field}\"])
+                |> sort(columns:[\"_time\"])
+            """
+
+            tables = client.query_api().query(flux)
+            pts = []
+            for table in tables:
+                for rec in table.records:
+                    val = rec.values.get(selected_field)
+                    if val is None:
+                        continue
+                    pts.append({
+                        "date": rec.get_time().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "value": val
+                    })
+            data_by_symbol[sym] = pts
+            logger.info(f"Fetched {len(pts)} points for {sym}")
+
+        # ------------------------------------------------------------
+        # 4. Build context & render
+        # ------------------------------------------------------------
         context = {
-            'symbol': symbol,
-            'symbols': symbols,
-            'data': data,
-            'start_date': start_date_display,
-            'end_date': end_date_display,
-            'days': days
+            "all_symbols": all_symbols,
+            "selected_symbols": selected_symbols,
+            "selected_field": selected_field,
+            "data_json": json.dumps(data_by_symbol),
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+            "fields": ["open","close","high","low","turnover","volume"],
         }
-        
-        logger.info(f"Rendering template with context: {context}")
-        return render(request, 'stock/dashboard.html', context)
-        
+
+        return render(request, "stock/dashboard.html", context)
     except Exception as e:
         logger.error(f"Error in stock_dashboard: {str(e)}", exc_info=True)
         return render(request, 'stock/dashboard.html', {
             'error': f'Error: {str(e)}',
-            'symbols': [],
-            'data': [],
-            'start_date': start_date_display if 'start_date_display' in locals() else None,
-            'end_date': end_date_display if 'end_date_display' in locals() else None
+            'all_symbols': [],
+            'selected_symbols': [],
+            'selected_field': 'close',
+            'data_json': '{}',
+            'start_date': start_date.strftime('%Y-%m-%d') if 'start_date' in locals() else None,
+            'end_date': end_date.strftime('%Y-%m-%d') if 'end_date' in locals() else None
         })
     finally:
-        if 'influx_handler' in locals():
+        if "influx_handler" in locals():
             influx_handler.close()
 
 @csrf_exempt
