@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+  // True if the user is signed in or the requested data is 'public'
+    function signedInOrPublic() {
+    	return request.auth != null || resource.data.visibility == 'public';
+    }
+    
+    match /buffetters/{buffetter}/{document=**} {
+      allow read, write: if signedInOrPublic();
+    }
+    
+    match /liveTrading/{tickerSymbol}/{document=**} {
+    allow read, write: if true
+    }
+    
+    match /tickers/{tickerSymbol}/{document=**} {
+    allow read, write: if true
+    }
+    
+    match /marketDailySummaries/{date}/{document=**} {
+    allow read, write: if true
+    }
+
+    match /marketWeeklySummaries/{date}/{document=**} {
+    allow read, write: if true
+    }
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

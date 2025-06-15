@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<canvas id="chart" width="800" height="400"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+fetch("{% url 'price_history' ticker=ticker %}")
+  .then(res => res.json())
+  .then(data => {
+    const ctx = document.getElementById('chart');
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.map(d => d.t),
+        datasets: [{
+          label: '{{ ticker }} Close Price',
+          data: data.map(d => d.price),
+          tension: 0.1
+        }]
+      }
+    });
+  });
+</script>
+{% endblock %} 
