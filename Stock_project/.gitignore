@@ -71,6 +71,7 @@ node_modules/
 # dataconnect generated files
 .dataconnect
 
+<<<<<<< HEAD
 # Python bytecode and artifacts
 __pycache__/
 *.py[cod]
@@ -96,3 +97,6 @@ dist/
 # IDE settings
 .vscode/
 .idea/
+=======
+.firebase-key.json
+>>>>>>> 2f053592d1c233b8305b1dba35f03cdc4fba529f
