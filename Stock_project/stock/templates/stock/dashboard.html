@@ -12,16 +12,16 @@
             {% endif %}
             <form method="get" class="form-inline" id="dashboardForm">
                 <!-- Symbol multi-select -->
-                <select name="symbols" multiple class="form-control mr-2">
+                <select name="symbols" id="symbolSelect" multiple class="form-select me-2 select-dropdown">
                     {% for s in all_symbols %}
                     <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
                     {% endfor %}
                 </select>
 
-                <!-- Field selector -->
-                <select name="field" class="form-control mr-2">
+                <!-- Field multi-select -->
+                <select name="fields" id="fieldSelect" multiple class="form-select me-2 select-dropdown">
                     {% for f in fields %}
-                    <option value="{{ f }}" {% if f == selected_field %}selected{% endif %}>{{ f|capfirst }}</option>
+                    <option value="{{ f }}" {% if f in selected_fields %}selected{% endif %}>{{ f|capfirst }}</option>
                     {% endfor %}
                 </select>
 
@@ -44,7 +44,7 @@
         <div class="col">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">{{ selected_field|capfirst }} Chart</h5>
+                    <h5 class="card-title">Selected Metrics Chart</h5>
                     <canvas id="priceChart"></canvas>
                 </div>
             </div>
@@ -60,18 +60,24 @@ const rawData = JSON.parse('{{ data_json|escapejs }}');
 console.log('rawData', rawData);
 
 // Generate distinct colors for datasets
-const palette = ['#4bc0c0','#ff6384','#36a2eb','#9966ff','#ff9f40','#c9cbcf'];
+const palette = ['#ff2e63','#08d9d6','#ffd32a','#ff595e','#17c3b2','#ff9f1c'];
 
-const datasets = Object.keys(rawData).map((sym, idx) => {
-  return {
-    label: sym,
-    data: rawData[sym].map(p => ({x: p.date, y: p.value})),
-    borderColor: palette[idx % palette.length],
-    backgroundColor: palette[idx % palette.length],
-    tension: 0.1,
-    fill: false,
-    // Chart.js will parse the x ISO string into a Date automatically
-  };
+let datasets = [];
+let colorIndex = 0;
+Object.keys(rawData).forEach(sym => {
+  Object.keys(rawData[sym]).forEach(field => {
+    const color = palette[colorIndex % palette.length];
+    colorIndex++;
+    datasets.push({
+      label: `${sym} ${field}`,
+      data: rawData[sym][field].map(p => ({x: p.date, y: p.value})),
+      borderColor: color,
+      backgroundColor: color,
+      borderWidth: 2,
+      tension: 0.1,
+      fill: false,
+    });
+  });
 });
 console.log('datasets', datasets);
 
@@ -86,7 +92,7 @@ new Chart(ctx, {
     plugins: {
       title: {
         display: true,
-        text: '{{ selected_field|capfirst }} for Selected Symbols'
+        text: 'Selected Metrics for Symbols'
       },
       tooltip: {
         mode: 'nearest',
@@ -107,10 +113,18 @@ new Chart(ctx, {
       y: {
         title: {
           display: true,
-          text: '{{ selected_field|capfirst }}'
+          text: 'Value'
         }
       }
     }
+  }
+});
+
+// Initialize Select2 dropdowns
+window.addEventListener('load', function() {
+  if (window.jQuery && $.fn.select2) {
+      $('#symbolSelect').select2({ placeholder: 'Select symbols' });
+      $('#fieldSelect').select2({ placeholder: 'Select fields' });
   }
 });
 </script>

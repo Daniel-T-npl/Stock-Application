@@ -1,0 +1,45 @@
+/* Dark theme styles */
+body {
+  background-color: #212529; /* dark gray */
+  color: #f8f9fa; /* light text */
+}
+
+.card {
+  background-color: #343a40; /* slightly lighter than body */
+  color: #f8f9fa;
+  box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.3);
+  border: none;
+}
+
+/* Fix dropdown width */
+.select-dropdown {
+  width: 220px;
+}
+
+/* Select2 styling to match dark theme */
+.select2-container--default .select2-selection--multiple {
+  background-color: #343a40;
+  border-color: #6c757d;
+  color: #f8f9fa;
+ 
+}
+.select2-container--default .select2-selection--multiple .select2-selection__choice {
+  background-color: #495057;
+  border: none;
+  color: #f8f9fa;
+}
+
+.select2-dropdown {
+  background-color: #536576;
+  color: #111213;
+}
+
+.navbar-dark .navbar-brand,
+.navbar-dark .navbar-nav .nav-link {
+  color: #f8f9fa;
+}
+
+.navbar-dark .navbar-brand:hover,
+.navbar-dark .navbar-nav .nav-link:hover {
+  color: #ffd32a;
+} 

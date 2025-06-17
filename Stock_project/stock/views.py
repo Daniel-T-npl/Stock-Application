@@ -25,7 +25,13 @@ def stock_dashboard(request):
             symbols_raw = [s.strip() for s in symbols_raw[0].split(",") if s.strip()]
 
         selected_symbols = symbols_raw
-        selected_field = request.GET.get("field", "close")  # default to close price
+
+        # --- Field selection -------------------------------------------------
+        fields_raw = request.GET.getlist("fields") or []
+        if len(fields_raw) == 1 and "," in fields_raw[0]:
+            fields_raw = [f.strip() for f in fields_raw[0].split(",") if f.strip()]
+
+        selected_fields = fields_raw if fields_raw else ["close"]  # default
 
         # Date range: default earliest 2021-01-03 to today
         try:
@@ -39,7 +45,7 @@ def stock_dashboard(request):
             end_date = datetime.utcnow()
 
         logger.info(
-            f"Dashboard params – symbols: {selected_symbols}, field: {selected_field}, range: {start_date} → {end_date}"
+            f"Dashboard params – symbols: {selected_symbols}, fields: {selected_fields}, range: {start_date} → {end_date}"
         )
 
         # ------------------------------------------------------------
@@ -77,29 +83,33 @@ def stock_dashboard(request):
         data_by_symbol = {}
 
         for sym in selected_symbols:
+            # Build list of field names for Flux keep()
+            keep_fields = ", ".join([f'\"{f}\"' for f in selected_fields])
+
             flux = f"""
             from(bucket: \"stock_data\")
                 |> range(start: {start_iso}, stop: {end_iso})
                 |> filter(fn: (r) => r[\"_measurement\"] == \"stock_data\")
                 |> filter(fn: (r) => r[\"symbol\"] == \"{sym}\")
                 |> pivot(rowKey:[\"_time\"], columnKey:[\"_field\"], valueColumn:\"_value\")
-                |> keep(columns:[\"_time\", \"{selected_field}\"])
+                |> keep(columns:[\"_time\", {keep_fields}])
                 |> sort(columns:[\"_time\"])
             """
 
             tables = client.query_api().query(flux)
-            pts = []
+            pts_by_field = {fld: [] for fld in selected_fields}
             for table in tables:
                 for rec in table.records:
-                    val = rec.values.get(selected_field)
-                    if val is None:
-                        continue
-                    pts.append({
-                        "date": rec.get_time().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "value": val
-                    })
-            data_by_symbol[sym] = pts
-            logger.info(f"Fetched {len(pts)} points for {sym}")
+                    for fld in selected_fields:
+                        val = rec.values.get(fld)
+                        if val is None:
+                            continue
+                        pts_by_field[fld].append({
+                            "date": rec.get_time().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "value": val
+                        })
+            data_by_symbol[sym] = pts_by_field
+            logger.info(f"Fetched data for {sym}: {[len(pts_by_field[f]) for f in selected_fields]}")
 
         # ------------------------------------------------------------
         # 4. Build context & render
@@ -107,7 +117,7 @@ def stock_dashboard(request):
         context = {
             "all_symbols": all_symbols,
             "selected_symbols": selected_symbols,
-            "selected_field": selected_field,
+            "selected_fields": selected_fields,
             "data_json": json.dumps(data_by_symbol),
             "start_date": start_date.strftime("%Y-%m-%d"),
             "end_date": end_date.strftime("%Y-%m-%d"),
@@ -121,7 +131,7 @@ def stock_dashboard(request):
             'error': f'Error: {str(e)}',
             'all_symbols': [],
             'selected_symbols': [],
-            'selected_field': 'close',
+            'selected_fields': ['close'],
             'data_json': '{}',
             'start_date': start_date.strftime('%Y-%m-%d') if 'start_date' in locals() else None,
             'end_date': end_date.strftime('%Y-%m-%d') if 'end_date' in locals() else None

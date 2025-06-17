@@ -73,6 +73,38 @@ class InfluxDBHandler:
             logger.error(f"Error writing data for {stock_symbol} on {date}: {str(e)}")
             raise
 
+    def write_stock_data_with_timestamp(self, date: str, stock_symbol: str, data: dict, timestamp: datetime):
+        """
+        Write stock data to InfluxDB with a specific timestamp
+        Args:
+            date (str): Date in YYYY-MM-DD format
+            stock_symbol (str): Stock symbol
+            data (dict): Stock data containing open, high, low, close, volume, etc.
+            timestamp (datetime): Specific timestamp for the data point
+        """
+        try:
+            point = Point("stock_data") \
+                .tag("symbol", stock_symbol) \
+                .field("open", float(data['open'])) \
+                .field("high", float(data['high'])) \
+                .field("low", float(data['low'])) \
+                .field("close", float(data['close'])) \
+                .field("volume", float(data['volume']))
+
+            if data.get('turnover') is not None:
+                point = point.field("turnover", float(data['turnover']))
+
+            # Use the provided timestamp
+            timestamp_ns = int(timestamp.timestamp() * 1e9)  # Convert to nanoseconds
+            point = point.time(timestamp_ns)
+
+            self.write_api.write(bucket=self.bucket, record=point)
+            logger.debug(f"Wrote data for {stock_symbol} at {timestamp}")
+
+        except Exception as e:
+            logger.error(f"Error writing data for {stock_symbol} at {timestamp}: {str(e)}")
+            raise
+
     def close(self):
         """Close the InfluxDB client connection"""
         self.client.close()
