@@ -69,6 +69,10 @@ def save_to_csv(stock_data, filename="stock_data.csv"):
         logger.error(f"Error saving to CSV: {str(e)}")
         return None
 
+
+
+
+
 def save_to_influxdb(stock_data, date=None):
     """Save stock data to InfluxDB"""
     try:

@@ -146,7 +146,7 @@ def main():
     logger.info("Press Ctrl+C to stop the scraper")
     
     # Schedule the job to run every 5 minutes
-    schedule.every(1).minutes.do(scrape_and_save)
+    schedule.every(20).minutes.do(scrape_and_save)
     
     # Run immediately on startup
     scrape_and_save()

@@ -109,3 +109,27 @@ class InfluxDBHandler:
         """Close the InfluxDB client connection"""
         self.client.close()
         logger.info("InfluxDB client connection closed") 
+
+    def get_all_symbols(self):
+        """
+        Query InfluxDB to get all unique stock symbols from the stock_data measurement.
+        Returns:
+            List of unique stock symbols.
+        """
+        query = f'''
+        import "influxdata/influxdb/schema"
+        schema.tagValues(
+        bucket: "{self.bucket}",
+        tag: "symbol"
+        )
+        ''' 
+        try:
+            result = self.client.query_api().query(org=self.org, query=query)
+            symbols = []
+            for table in result:
+                for record in table.records:
+                    symbols.append(record.get_value())
+            return symbols
+        except Exception as e:
+            logger.error(f"Error fetching symbols from InfluxDB: {str(e)}")
+            return []

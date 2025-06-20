@@ -5,4 +5,6 @@ influxdb-client>=1.38.0
 python-dotenv>=1.0.0
 lxml>=4.9.0
 html5lib>=1.1
-schedule>=1.2.0 
+schedule>=1.2.0
+selenium>=4.15.0
+webdriver-manager>=4.0.0 
