@@ -4,6 +4,7 @@ from influxdb_client import InfluxDBClient
 from influxdb_client.client.delete_api import DeleteApi
 from influxdb_client.client.query_api import QueryApi
 from datetime import datetime, timedelta
+from stocks.influx_client import InfluxDBHandler
 
 # Load environment variables
 load_dotenv()

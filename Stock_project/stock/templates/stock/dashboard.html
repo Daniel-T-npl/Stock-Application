@@ -1,35 +1,43 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<link href="/static/stock/css/theme.css" rel="stylesheet" />
+
 <div class="container mt-4">
     <div class="row mb-4">
         <div class="col">
             <h1>Stock Dashboard</h1>
             {% if error %}
-            <div class="alert alert-danger">
+            <div class="alert alert-danger" role="alert">
                 Error: {{ error }}
             </div>
             {% endif %}
-            <form method="get" class="form-inline" id="dashboardForm">
-                <!-- Symbol multi-select -->
-                <select name="symbols" id="symbolSelect" multiple class="form-select me-2 select-dropdown">
-                    {% for s in all_symbols %}
-                    <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
-                    {% endfor %}
-                </select>
-
-                <!-- Field multi-select -->
-                <select name="fields" id="fieldSelect" multiple class="form-select me-2 select-dropdown">
-                    {% for f in fields %}
-                    <option value="{{ f }}" {% if f in selected_fields %}selected{% endif %}>{{ f|capfirst }}</option>
-                    {% endfor %}
-                </select>
-
-                <!-- Date range -->
-                <input type="date" name="start" class="form-control mr-2" value="{{ start_date }}" min="2021-01-03">
-                <input type="date" name="end" class="form-control mr-2" value="{{ end_date }}">
-
-                <button type="submit" class="btn btn-primary">Update</button>
+            <form method="get" class="row g-3 align-items-center" id="dashboardForm">
+                <div class="col-md-4">
+                    <select name="symbols" id="symbolSelect" multiple class="form-select">
+                        {% for s in all_symbols %}
+                        <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select name="fields" id="fieldSelect" multiple class="form-select" style="display:none;" disabled>
+                        {% for f in fields %}
+                        <option value="{{ f }}" {% if f in selected_fields %}selected{% endif %}>{{ f|capfirst }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <input type="date" name="start" class="form-control" value="{{ start_date }}" min="2021-01-03">
+                </div>
+                <div class="col-auto">
+                    <input type="date" name="end" class="form-control" value="{{ end_date }}">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary">Update</button>
+                </div>
             </form>
             <p class="text-muted mt-2">Showing data from {{ start_date }} to {{ end_date }}</p>
             {% if data_json and data_json != '{}' %}
@@ -44,88 +52,180 @@
         <div class="col">
             <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">Selected Metrics Chart</h5>
-                    <canvas id="priceChart"></canvas>
+                    <h5 class="card-title">Candlestick Chart</h5>
+                    <div class="mb-3">
+                        <label for="candleRange" class="form-label">Range:</label>
+                        <select id="candleRange" class="form-select" style="width:auto; display:inline-block;">
+                            <option value="default">Default</option>
+                            <option value="1">1D</option>
+                            <option value="7">1W</option>
+                            <option value="30">1M</option>
+                        </select>
+                    </div>
+                    <div id="priceChart"></div>
+                    <div id="d3-tooltip" class="tooltip" style="opacity:0; position:absolute;"></div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+{{ selected_symbols|json_script:"selected-symbols-data" }}
+<script id="raw-data-json" type="application/json">{{ data_json|safe }}</script>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
-const rawData = JSON.parse('{{ data_json|escapejs }}');
-console.log('rawData', rawData);
-
-// Generate distinct colors for datasets
-const palette = ['#ff2e63','#08d9d6','#ffd32a','#ff595e','#17c3b2','#ff9f1c'];
-
-let datasets = [];
-let colorIndex = 0;
-Object.keys(rawData).forEach(sym => {
-  Object.keys(rawData[sym]).forEach(field => {
-    const color = palette[colorIndex % palette.length];
-    colorIndex++;
-    datasets.push({
-      label: `${sym} ${field}`,
-      data: rawData[sym][field].map(p => ({x: p.date, y: p.value})),
-      borderColor: color,
-      backgroundColor: color,
-      borderWidth: 2,
-      tension: 0.1,
-      fill: false,
-    });
-  });
+$(document).ready(function() {
+    $('#symbolSelect').select2({ placeholder: 'Select symbols' });
+    // Field selector is hidden/disabled for now
 });
-console.log('datasets', datasets);
 
-const ctx = document.getElementById('priceChart').getContext('2d');
-new Chart(ctx, {
-  type: 'line',
-  data: {
-    datasets: datasets
-  },
-  options: {
-    responsive: true,
-    plugins: {
-      title: {
-        display: true,
-        text: 'Selected Metrics for Symbols'
-      },
-      tooltip: {
-        mode: 'nearest',
-        intersect: false
-      }
-    },
-    scales: {
-      x: {
-        type: 'time',
-        time: {
-          unit: 'day'
-        },
-        title: {
-          display: true,
-          text: 'Date'
-        }
-      },
-      y: {
-        title: {
-          display: true,
-          text: 'Value'
-        }
-      }
+const selectedSymbols = JSON.parse(document.getElementById('selected-symbols-data').textContent);
+const rawData = JSON.parse(document.getElementById('raw-data-json').textContent);
+
+console.log('rawData keys:', Object.keys(rawData));
+console.log('selectedSymbols:', selectedSymbols);
+let symbol = selectedSymbols.length > 0 ? selectedSymbols[0] : null;
+if (!symbol || !rawData[symbol]) {
+    // fallback to first available symbol in rawData
+    symbol = Object.keys(rawData)[0];
+    console.log('Fallback to symbol:', symbol);
+}
+console.log('symbol:', symbol);
+console.log('rawData[symbol]:', rawData[symbol]);
+let ohlcData = [];
+if (symbol && rawData[symbol]) {
+    ohlcData = rawData[symbol].map(d => ({
+        date: new Date(d.date),
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close
+    })).filter(d =>
+        d.open !== undefined && d.open !== null &&
+        d.high !== undefined && d.high !== null &&
+        d.low !== undefined && d.low !== null &&
+        d.close !== undefined && d.close !== null
+    );
+}
+console.log('ohlcData', ohlcData);
+
+function groupOHLC(data, range) {
+    if (range === 'default' || range === '1' || range === 1) return data;
+    const grouped = [];
+    for (let i = 0; i < data.length; i += Number(range)) {
+        const chunk = data.slice(i, i + Number(range));
+        if (chunk.length === 0) continue;
+        grouped.push({
+            date: chunk[0].date,
+            open: chunk[0].open,
+            close: chunk[chunk.length - 1].close,
+            high: d3.max(chunk, d => d.high),
+            low: d3.min(chunk, d => d.low)
+        });
     }
-  }
-});
+    return grouped;
+}
 
-// Initialize Select2 dropdowns
-window.addEventListener('load', function() {
-  if (window.jQuery && $.fn.select2) {
-      $('#symbolSelect').select2({ placeholder: 'Select symbols' });
-      $('#fieldSelect').select2({ placeholder: 'Select fields' });
-  }
+function drawChart(ohlcData) {
+    d3.select("#priceChart").selectAll("svg").remove();
+    const margin = {top: 40, right: 30, bottom: 50, left: 60},
+          width = 1300 - margin.left - margin.right,
+          height = 600 - margin.top - margin.bottom;
+    const svg = d3.select("#priceChart")
+      .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+    const x = d3.scaleBand()
+      .domain(ohlcData.map(d => d.date))
+      .range([0, width])
+      .padding(0.3);
+    const y = d3.scaleLinear()
+      .domain([
+        d3.min(ohlcData, d => d.low),
+        d3.max(ohlcData, d => d.high)
+      ])
+      .nice()
+      .range([height, 0]);
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%Y-%m-%d")).tickValues(x.domain().filter((d, i) => !(i % Math.ceil(ohlcData.length / 10)))))
+      .selectAll("text")
+        .attr("transform", "rotate(-45)")
+        .style("text-anchor", "end");
+    svg.append("g")
+      .call(d3.axisLeft(y));
+    // Tooltip selection
+    const tooltip = d3.select("#d3-tooltip");
+    function showTooltip(event, d) {
+        tooltip.transition().duration(100).style("opacity", 1);
+        tooltip.html(
+            `<strong>${d3.timeFormat('%Y-%m-%d')(d.date)}</strong><br>` +
+            `Open: <span style='color:#ffd32a'>${d.open}</span><br>` +
+            `High: <span style='color:#ffd32a'>${d.high}</span><br>` +
+            `Low: <span style='color:#ffd32a'>${d.low}</span><br>` +
+            `Close: <span style='color:#ffd32a'>${d.close}</span>`
+        );
+        const chartRect = document.getElementById('priceChart').getBoundingClientRect();
+        const tooltipNode = tooltip.node();
+        const tooltipWidth = tooltipNode.offsetWidth;
+        const tooltipHeight = tooltipNode.offsetHeight;
+        let x = event.clientX - chartRect.left + 60;
+        let y = event.clientY - chartRect.top + 10;
+        if (x + tooltipWidth > chartRect.width) {
+            x = chartRect.width - tooltipWidth - 10;
+        }
+        if (y + tooltipHeight > chartRect.height) {
+            y = chartRect.height - tooltipHeight - 10;
+        }
+        tooltip.style("left", x + "px")
+               .style("top", y + "px");
+    }
+    function hideTooltip() {
+        tooltip.transition().duration(200).style("opacity", 0);
+    }
+    svg.selectAll(".wick")
+      .data(ohlcData)
+      .join("line")
+        .attr("class", "wick")
+        .attr("x1", d => x(d.date) + x.bandwidth() / 2)
+        .attr("x2", d => x(d.date) + x.bandwidth() / 2)
+        .attr("y1", d => y(d.high))
+        .attr("y2", d => y(d.low))
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 1.5)
+        .on("mouseover", showTooltip)
+        .on("mousemove", showTooltip)
+        .on("mouseout", hideTooltip);
+    svg.selectAll(".candle")
+      .data(ohlcData)
+      .join("rect")
+        .attr("class", "candle")
+        .attr("x", d => x(d.date))
+        .attr("y", d => y(Math.max(d.open, d.close)))
+        .attr("width", x.bandwidth())
+        .attr("rx", 3)
+        .attr("ry", 3)
+        .attr("height", d => Math.abs(y(d.open) - y(d.close)))
+        .attr("fill", d => d.close > d.open ? "#4caf50" : "#e53935")
+        .on("mouseover", showTooltip)
+        .on("mousemove", showTooltip)
+        .on("mouseout", hideTooltip);
+}
+
+// Initial data prep
+let groupedOhlcData = ohlcData;
+drawChart(groupedOhlcData);
+
+document.getElementById('candleRange').addEventListener('change', function() {
+    const range = this.value;
+    groupedOhlcData = groupOHLC(ohlcData, range);
+    drawChart(groupedOhlcData);
 });
 </script>
 {% endblock %} 

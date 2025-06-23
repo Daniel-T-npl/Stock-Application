@@ -5,6 +5,7 @@ from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import os
 from dotenv import load_dotenv
+from stocks.influx_client import InfluxDBHandler
 
 # Load environment variables
 load_dotenv()

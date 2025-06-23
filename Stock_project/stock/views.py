@@ -15,7 +15,6 @@ def stock_dashboard(request):
     try:
         influx_handler = InfluxDBHandler()
         client = influx_handler.client
-
         # ------------------------------------------------------------
         # 1. Handle query-string parameters
         # ------------------------------------------------------------
@@ -31,7 +30,7 @@ def stock_dashboard(request):
         if len(fields_raw) == 1 and "," in fields_raw[0]:
             fields_raw = [f.strip() for f in fields_raw[0].split(",") if f.strip()]
 
-        selected_fields = fields_raw if fields_raw else ["close"]  # default
+        selected_fields = fields_raw if fields_raw else ["open", "high", "low", "close"]  # default for candlestick
 
         # Date range: default earliest 2021-01-03 to today
         try:
@@ -83,8 +82,9 @@ def stock_dashboard(request):
         data_by_symbol = {}
 
         for sym in selected_symbols:
-            # Build list of field names for Flux keep()
-            keep_fields = ", ".join([f'\"{f}\"' for f in selected_fields])
+            # For candlestick, we always need ohlc, even if other fields are selected
+            query_fields = sorted(list(set(selected_fields + ["open", "high", "low", "close"])))
+            keep_fields = ", ".join([f'\"{f}\"' for f in query_fields])
 
             flux = f"""
             from(bucket: \"stock_data\")
@@ -97,19 +97,18 @@ def stock_dashboard(request):
             """
 
             tables = client.query_api().query(flux)
-            pts_by_field = {fld: [] for fld in selected_fields}
+            
+            # Re-structure data into a list of date-based objects
+            points = []
             for table in tables:
                 for rec in table.records:
-                    for fld in selected_fields:
-                        val = rec.values.get(fld)
-                        if val is None:
-                            continue
-                        pts_by_field[fld].append({
-                            "date": rec.get_time().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                            "value": val
-                        })
-            data_by_symbol[sym] = pts_by_field
-            logger.info(f"Fetched data for {sym}: {[len(pts_by_field[f]) for f in selected_fields]}")
+                    point = {"date": rec.get_time().strftime("%Y-%m-%dT%H:%M:%SZ")}
+                    for fld in query_fields:
+                        point[fld] = rec.values.get(fld)
+                    points.append(point)
+
+            data_by_symbol[sym] = points
+            logger.info(f"Fetched {len(points)} points for {sym}")
 
         # ------------------------------------------------------------
         # 4. Build context & render

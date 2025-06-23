@@ -1,13 +1,13 @@
 /* Dark theme styles */
 body {
-  background-color: #212529; /* dark gray */
+  background-color: #21282d; /* blue instead of dark gray */
   color: #f8f9fa; /* light text */
 }
 
 .card {
-  background-color: #343a40; /* slightly lighter than body */
+  background-color: #3b3846; /* green instead of dark gray */
   color: #f8f9fa;
-  box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0.25rem 0.5rem rgb(13 7 31 / 30%); /* orange shadow */
   border: none;
 }
 
@@ -18,19 +18,23 @@ body {
 
 /* Select2 styling to match dark theme */
 .select2-container--default .select2-selection--multiple {
-  background-color: #343a40;
+  background-color: #242424; /* purple instead of dark gray */
   border-color: #6c757d;
   color: #f8f9fa;
- 
 }
 .select2-container--default .select2-selection--multiple .select2-selection__choice {
-  background-color: #495057;
+  background-color: #403d3d; /* orange instead of dark gray */
   border: none;
-  color: #f8f9fa;
+  color: #ffffff;
 }
 
+.select2-search__field {
+  color: #e2ebf4;
+}
+
+
 .select2-dropdown {
-  background-color: #536576;
+  background-color: #a9a9a9; /* red instead of gray */
   color: #111213;
 }
 
@@ -41,5 +45,45 @@ body {
 
 .navbar-dark .navbar-brand:hover,
 .navbar-dark .navbar-nav .nav-link:hover {
-  color: #ffd32a;
+  color: #726533;
+}
+
+/* D3 Chart Legend and Tooltip Styles */
+.tooltip {
+  position: absolute;
+  background-color: #fff;
+  border: 1px solid #ddd;
+  padding: 10px;
+  border-radius: 5px;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 1050;
+  color: #3131a4; /* blue text for tooltip */
+  font-size: 13px;
+  min-width: 120px;
+  box-shadow: 0 2px 8px rgba(255,0,0,0.15); /* red shadow */
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 10px;
+  margin-top: 10px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.legend-color {
+  width: 18px;
+  height: 6px;
+  border-radius: 2px;
+  display: inline-block;
 } 
+
+.form-select {
+  background-color: #a9a9a9; /* red instead of gray */
+  color: #111213;
+}
