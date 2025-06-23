@@ -1,0 +1,222 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+    <div class="mb-4">
+        <div class="btn-group" role="group" aria-label="Graph Type Navigation">
+            <a href="/dashboard/candlestick/" class="btn btn-outline-primary{% if request.path == '/dashboard/candlestick/' %} active{% endif %}">Candlestick</a>
+            <a href="/dashboard/line/" class="btn btn-outline-primary{% if request.path == '/dashboard/line/' %} active{% endif %}">Line</a>
+            <a href="/dashboard/rsi/" class="btn btn-outline-primary{% if request.path == '/dashboard/rsi/' %} active{% endif %}">RSI</a>
+        </div>
+    </div>
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Line Graph Dashboard</h1>
+            <form method="get" class="row g-3 align-items-center" id="lineForm">
+                <div class="col-md-4">
+                    <label for="symbolSelect" class="form-label">Stocks</label>
+                    <select name="symbols" id="symbolSelect" multiple class="form-select">
+                        {% for s in all_symbols %}
+                        <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="fieldSelect" class="form-label">Fields</label>
+                    <select name="fields" id="fieldSelect" multiple class="form-select">
+                        {% for f in fields %}
+                        <option value="{{ f }}" {% if f in selected_fields %}selected{% endif %}>{{ f|capfirst }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label for="startDate" class="form-label">Start</label>
+                    <input type="date" name="start" id="startDate" class="form-control" value="{{ start_date }}" min="2021-01-03">
+                </div>
+                <div class="col-auto">
+                    <label for="endDate" class="form-label">End</label>
+                    <input type="date" name="end" id="endDate" class="form-control" value="{{ end_date }}">
+                </div>
+                <div class="col-auto">
+                    <label for="maRange" class="form-label">Moving Avg</label>
+                    <input type="number" name="ma" id="maRange" class="form-control" min="1" max="60" value="{{ ma|default:1 }}">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary">Update</button>
+                </div>
+            </form>
+            {% if data_json and data_json == '{}' %}
+                <p class="text-warning">No data available for the selected parameters</p>
+            {% endif %}
+        </div>
+    </div>
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Line Chart</h5>
+                    <div id="lineChart"></div>
+                    <div id="d3-tooltip" class="tooltip" style="opacity:0; position:absolute;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{ selected_symbols|json_script:"selected-symbols-data" }}
+<script id="raw-data-json" type="application/json">{{ data_json|safe }}</script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#symbolSelect').select2({ placeholder: 'Select symbols' });
+    $('#fieldSelect').select2({ placeholder: 'Select fields' });
+});
+const selectedSymbols = JSON.parse(document.getElementById('selected-symbols-data').textContent);
+const rawData = JSON.parse(document.getElementById('raw-data-json').textContent);
+const selectedFields = JSON.parse('{{ selected_fields|safe|escapejs }}'.replace(/'/g, '"'));
+const maWindow = parseInt('{{ ma }}');
+
+// Color palette for stocks
+const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+
+// Helper: moving average
+function movingAverage(data, windowSize, valueKey) {
+    if (windowSize <= 1) return data.map(d => ({...d, ma: d[valueKey]}));
+    let result = [];
+    for (let i = 0; i < data.length; i++) {
+        if (i < windowSize - 1) {
+            result.push({...data[i], ma: null});
+        } else {
+            const windowSlice = data.slice(i - windowSize + 1, i + 1);
+            const avg = d3.mean(windowSlice, d => d[valueKey]);
+            result.push({...data[i], ma: avg});
+        }
+    }
+    return result;
+}
+
+function drawLineChart() {
+    d3.select("#lineChart").selectAll("svg").remove();
+    const margin = {top: 40, right: 30, bottom: 50, left: 60},
+          width = 1300 - margin.left - margin.right,
+          height = 600 - margin.top - margin.bottom;
+    const svg = d3.select("#lineChart")
+      .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+    // Prepare all dates
+    let allDates = new Set();
+    selectedSymbols.forEach((sym) => {
+        (rawData[sym] || []).forEach(d => allDates.add(d.date));
+    });
+    allDates = Array.from(allDates).sort();
+    // X and Y scales
+    const x = d3.scaleBand()
+      .domain(allDates.map(d => new Date(d)))
+      .range([0, width])
+      .padding(0.1);
+    // Flatten all values for y domain
+    let allValues = [];
+    selectedSymbols.forEach(sym => {
+        selectedFields.forEach(field => {
+            (rawData[sym] || []).forEach(d => {
+                if (d[field] !== undefined && d[field] !== null) allValues.push(d[field]);
+            });
+        });
+    });
+    // Also include moving average values
+    selectedSymbols.forEach(sym => {
+        selectedFields.forEach(field => {
+            const maData = movingAverage(rawData[sym] || [], maWindow, field);
+            maData.forEach(d => { if (d.ma !== null && d.ma !== undefined) allValues.push(d.ma); });
+        });
+    });
+    const y = d3.scaleLinear()
+      .domain([d3.min(allValues), d3.max(allValues)])
+      .nice()
+      .range([height, 0]);
+    // X axis
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%Y-%m-%d")).tickValues(x.domain().filter((d, i) => !(i % Math.ceil(allDates.length / 10)))))
+      .selectAll("text")
+        .attr("transform", "rotate(-45)")
+        .style("text-anchor", "end");
+    // Y axis
+    svg.append("g")
+      .call(d3.axisLeft(y));
+    // Tooltip
+    const tooltip = d3.select("#d3-tooltip");
+    function showTooltip(event, d, sym, field) {
+        tooltip.transition().duration(100).style("opacity", 1);
+        tooltip.html(
+            `<strong>${sym} (${field})</strong><br>` +
+            `<span>${d3.timeFormat('%Y-%m-%d')(new Date(d.date))}</span><br>` +
+            `MA({{ ma }}): <span style='color:#0d6efd'>${d.ma?.toFixed(2)}</span>`
+        );
+        const chartRect = document.getElementById('lineChart').getBoundingClientRect();
+        const tooltipNode = tooltip.node();
+        const tooltipWidth = tooltipNode.offsetWidth;
+        const tooltipHeight = tooltipNode.offsetHeight;
+        let xPos = event.clientX - chartRect.left + 60;
+        let yPos = event.clientY - chartRect.top + 10;
+        if (xPos + tooltipWidth > chartRect.width) {
+            xPos = chartRect.width - tooltipWidth - 10;
+        }
+        if (yPos + tooltipHeight > chartRect.height) {
+            yPos = chartRect.height - tooltipHeight - 10;
+        }
+        tooltip.style("left", xPos + "px").style("top", yPos + "px");
+    }
+    function hideTooltip() {
+        tooltip.transition().duration(200).style("opacity", 0);
+    }
+    // Draw only the moving average line for each (stock, field)
+    let colorIndex = 0;
+    selectedSymbols.forEach((sym) => {
+        selectedFields.forEach((field) => {
+            const data = (rawData[sym] || []).map(d => ({...d, date: new Date(d.date)}));
+            const maData = movingAverage(data, maWindow, field).filter(d => d.ma !== null);
+            svg.append("path")
+                .datum(maData)
+                .attr("fill", "none")
+                .attr("stroke", colorScale(colorIndex))
+                .attr("stroke-width", 2)
+                .attr("d", d3.line()
+                    .x(d => x(d.date) + x.bandwidth()/2)
+                    .y(d => y(d.ma))
+                );
+            // Points for MA tooltip (smaller)
+            svg.selectAll(`.ma-dot-${sym}-${field}`)
+                .data(maData)
+                .join("circle")
+                .attr("class", `ma-dot-${sym}-${field}`)
+                .attr("cx", d => x(d.date) + x.bandwidth()/2)
+                .attr("cy", d => y(d.ma))
+                .attr("r", 1.5)
+                .attr("fill", colorScale(colorIndex))
+                .attr("opacity", 0.8)
+                .on("mouseover", (event, d) => showTooltip(event, d, sym, field))
+                .on("mousemove", (event, d) => showTooltip(event, d, sym, field))
+                .on("mouseout", hideTooltip);
+            colorIndex++;
+        });
+    });
+    // Legend
+    const legend = svg.append("g").attr("class", "chart-legend").attr("transform", `translate(0,-30)`);
+    colorIndex = 0;
+    selectedSymbols.forEach((sym) => {
+        selectedFields.forEach((field) => {
+            const legendItem = legend.append("g").attr("class", "legend-item").attr("transform", `translate(${colorIndex*180},0)`);
+            legendItem.append("rect").attr("width", 18).attr("height", 6).attr("fill", colorScale(colorIndex));
+            legendItem.append("text").attr("x", 24).attr("y", 12).text(`${sym} (${field})`).style("fill", colorScale(colorIndex)).style("font-size", "14px");
+            colorIndex++;
+        });
+    });
+}
+drawLineChart();
+</script>
+{% endblock %} 

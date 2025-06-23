@@ -6,9 +6,16 @@
 <link href="/static/stock/css/theme.css" rel="stylesheet" />
 
 <div class="container mt-4">
+    <div class="mb-4">
+        <div class="btn-group" role="group" aria-label="Graph Type Navigation">
+            <a href="/dashboard/candlestick/" class="btn btn-outline-primary{% if request.path == '/dashboard/candlestick/' %} active{% endif %}">Candlestick</a>
+            <a href="/dashboard/line/" class="btn btn-outline-primary{% if request.path == '/dashboard/line/' %} active{% endif %}">Line</a>
+            <a href="/dashboard/rsi/" class="btn btn-outline-primary{% if request.path == '/dashboard/rsi/' %} active{% endif %}">RSI</a>
+        </div>
+    </div>
     <div class="row mb-4">
         <div class="col">
-            <h1>Stock Dashboard</h1>
+            <h1>Candlestick Graph Dashboard</h1>
             {% if error %}
             <div class="alert alert-danger" role="alert">
                 Error: {{ error }}
@@ -16,7 +23,7 @@
             {% endif %}
             <form method="get" class="row g-3 align-items-center" id="dashboardForm">
                 <div class="col-md-4">
-                    <select name="symbols" id="symbolSelect" multiple class="form-select">
+                    <select name="symbols" id="symbolSelect" class="form-select">
                         {% for s in all_symbols %}
                         <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
                         {% endfor %}
@@ -39,10 +46,7 @@
                     <button type="submit" class="btn btn-primary">Update</button>
                 </div>
             </form>
-            <p class="text-muted mt-2">Showing data from {{ start_date }} to {{ end_date }}</p>
-            {% if data_json and data_json != '{}' %}
-                <p class="text-muted">Loaded data for {{ selected_symbols|length }} symbol{{ selected_symbols|length|pluralize }}</p>
-            {% else %}
+            {% if data_json and data_json == '{}' %}
                 <p class="text-warning">No data available for the selected parameters</p>
             {% endif %}
         </div>
@@ -79,7 +83,7 @@
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
 $(document).ready(function() {
-    $('#symbolSelect').select2({ placeholder: 'Select symbols' });
+    $('#symbolSelect').select2({ placeholder: 'Select symbol', minimumResultsForSearch: 10 });
     // Field selector is hidden/disabled for now
 });
 
