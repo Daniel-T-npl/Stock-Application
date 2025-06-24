@@ -1,3 +1,4 @@
+from unicodedata import name
 from django.urls import path
 from . import views
 
@@ -7,4 +8,5 @@ urlpatterns = [
     path('dashboard/candlestick/', views.stock_dashboard, name='candlestick_dashboard'),
     path('dashboard/line/', views.line_dashboard, name='line_dashboard'),
     path('dashboard/rsi/', views.rsi_dashboard, name='rsi_dashboard'),
+    #path('dashboard/bollinger/', views.bollinger_dashboard, name='bollinger_dashboard')
 ] 

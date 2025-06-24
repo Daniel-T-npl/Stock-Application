@@ -36,15 +36,18 @@ def stock_dashboard(request):
 
         selected_fields = fields_raw if fields_raw else ["open", "high", "low", "close"]  # default for candlestick
 
-        # Date range: default earliest 2021-01-03 to today
+        # Date range: default 180 days before today
         try:
-            start_param = request.GET.get("start", "2021-01-03")
+            start_param = request.GET.get("start")
             end_param = request.GET.get("end", datetime.utcnow().strftime("%Y-%m-%d"))
-            start_date = datetime.strptime(start_param, "%Y-%m-%d")
+            if start_param:
+                start_date = datetime.strptime(start_param, "%Y-%m-%d")
+            else:
+                start_date = datetime.utcnow() - timedelta(days=180)
             end_date = datetime.strptime(end_param, "%Y-%m-%d")
         except ValueError:
             # Fallback to defaults on parse error
-            start_date = datetime(2021, 1, 3)
+            start_date = datetime.utcnow() - timedelta(days=180)
             end_date = datetime.utcnow()
 
         logger.info(
@@ -214,14 +217,17 @@ def line_dashboard(request):
         selected_fields = fields_raw if fields_raw else ["close"]
 
         ma = int(request.GET.get("ma", 1))
-        # Date range
+        # Date range: default 180 days before today
         try:
-            start_param = request.GET.get("start", "2021-01-03")
+            start_param = request.GET.get("start")
             end_param = request.GET.get("end", datetime.utcnow().strftime("%Y-%m-%d"))
-            start_date = datetime.strptime(start_param, "%Y-%m-%d")
+            if start_param:
+                start_date = datetime.strptime(start_param, "%Y-%m-%d")
+            else:
+                start_date = datetime.utcnow() - timedelta(days=180)
             end_date = datetime.strptime(end_param, "%Y-%m-%d")
         except ValueError:
-            start_date = datetime(2021, 1, 3)
+            start_date = datetime.utcnow() - timedelta(days=180)
             end_date = datetime.utcnow()
 
         # All symbols for selector
@@ -323,15 +329,18 @@ def rsi_dashboard(request):
         except ValueError:
             period = 14
 
-        # Date range: default earliest 2021-01-03 to today
+        # Date range: default 180 days before today
         try:
-            start_param = request.GET.get("start", "2021-01-03")
+            start_param = request.GET.get("start")
             end_param = request.GET.get("end", datetime.utcnow().strftime("%Y-%m-%d"))
-            start_date = datetime.strptime(start_param, "%Y-%m-%d")
+            if start_param:
+                start_date = datetime.strptime(start_param, "%Y-%m-%d")
+            else:
+                start_date = datetime.utcnow() - timedelta(days=180)
             end_date = datetime.strptime(end_param, "%Y-%m-%d")
         except ValueError:
             # Fallback to defaults on parse error
-            start_date = datetime(2021, 1, 3)
+            start_date = datetime.utcnow() - timedelta(days=180)
             end_date = datetime.utcnow()
 
         logger.info(

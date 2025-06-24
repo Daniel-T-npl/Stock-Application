@@ -1,7 +1,8 @@
 import os
 from dotenv import load_dotenv
-from influxdb_client import InfluxDBClient, Point, WriteApi
-from influxdb_client.client.write_api import SYNCHRONOUS
+from influxdb_client.client.influxdb_client import InfluxDBClient
+from influxdb_client.client.write.point import Point
+from influxdb_client.client.write_api import WriteApi, SYNCHRONOUS
 import logging
 from datetime import datetime
 
