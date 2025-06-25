@@ -1,16 +1,15 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-<link href="/static/stock/css/theme.css" rel="stylesheet" />
-
 <div class="container mt-4">
     <div class="mb-4">
         <div class="btn-group" role="group" aria-label="Graph Type Navigation">
             <a href="/dashboard/candlestick/" class="btn btn-outline-primary{% if request.path == '/dashboard/candlestick/' %} active{% endif %}">Candlestick</a>
             <a href="/dashboard/line/" class="btn btn-outline-primary{% if request.path == '/dashboard/line/' %} active{% endif %}">Line</a>
             <a href="/dashboard/rsi/" class="btn btn-outline-primary{% if request.path == '/dashboard/rsi/' %} active{% endif %}">RSI</a>
+            <a href="/dashboard/bollinger/" class="btn btn-outline-primary{% if request.path == '/dashboard/bollinger/' %} active{% endif %}">Bollinger Bands</a>
+            <a href="/dashboard/arima/" class="btn btn-outline-primary{% if request.path == '/dashboard/arima/' %} active{% endif %}">ARIMA/GARCH</a>
         </div>
     </div>
     <div class="row mb-4">
@@ -21,29 +20,29 @@
                 Error: {{ error }}
             </div>
             {% endif %}
-            <form method="get" class="row g-3 align-items-center" id="dashboardForm">
-                <div class="col-md-4">
-                    <select name="symbols" id="symbolSelect" class="form-select">
+            <form method="get" class="row g-3 align-items-end mb-4" id="candlestickForm">
+                <div class="col-md-3">
+                    <label for="symbolSelect" class="form-label">Stock</label>
+                    <select name="symbols" id="symbolSelect" class="form-select dark-select">
                         {% for s in all_symbols %}
                         <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-3">
-                    <select name="fields" id="fieldSelect" multiple class="form-select" style="display:none;" disabled>
-                        {% for f in fields %}
-                        <option value="{{ f }}" {% if f in selected_fields %}selected{% endif %}>{{ f|capfirst }}</option>
-                        {% endfor %}
-                    </select>
+                <div class="col-md-2">
+                    <label for="startDate" class="form-label">Start Date</label>
+                    <input type="date" name="start" id="startDate" class="form-control dark-select" value="{{ start_date }}">
                 </div>
-                <div class="col-auto">
-                    <input type="date" name="start" class="form-control" value="{{ start_date }}" min="2021-01-03">
+                <div class="col-md-2">
+                    <label for="endDate" class="form-label">End Date</label>
+                    <input type="date" name="end" id="endDate" class="form-control dark-select" value="{{ end_date }}">
                 </div>
-                <div class="col-auto">
-                    <input type="date" name="end" class="form-control" value="{{ end_date }}">
+                <div class="col-md-2">
+                    <label for="candleRange" class="form-label">Candle Range</label>
+                    <input type="number" name="candle_range" id="candleRange" class="form-control dark-select" value="{{ candle_range|default:1 }}" min="1" max="365">
                 </div>
-                <div class="col-auto">
-                    <button type="submit" class="btn btn-primary">Update</button>
+                <div class="col-md-2 d-flex align-items-end">
+                    <a href="/dashboard/candlestick/" class="btn btn-primary w-100">Reset</a>
                 </div>
             </form>
             {% if data_json and data_json == '{}' %}
@@ -57,15 +56,6 @@
             <div class="card">
                 <div class="card-body">
                     <h5 class="card-title">Candlestick Chart</h5>
-                    <div class="mb-3">
-                        <label for="candleRange" class="form-label">Range:</label>
-                        <select id="candleRange" class="form-select" style="width:auto; display:inline-block;">
-                            <option value="default">Default</option>
-                            <option value="1">1D</option>
-                            <option value="7">1W</option>
-                            <option value="30">1M</option>
-                        </select>
-                    </div>
                     <div id="priceChart"></div>
                     <div id="d3-tooltip" class="tooltip" style="opacity:0; position:absolute;"></div>
                 </div>
@@ -73,33 +63,28 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 {{ selected_symbols|json_script:"selected-symbols-data" }}
 <script id="raw-data-json" type="application/json">{{ data_json|safe }}</script>
-
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
 $(document).ready(function() {
-    $('#symbolSelect').select2({ placeholder: 'Select symbol', minimumResultsForSearch: 10 });
-    // Field selector is hidden/disabled for now
+    // $('#symbolSelect').select2({ placeholder: 'Select symbol' }); // Remove Select2 for native dark style
+
+    $('#candlestickForm').on('change', 'input, select', function() {
+        // Redrawing locally for range is fine, but other changes need a full refresh
+        if (this.id !== 'candleRange') {
+            $('#candlestickForm').submit();
+        }
+    });
 });
 
 const selectedSymbols = JSON.parse(document.getElementById('selected-symbols-data').textContent);
 const rawData = JSON.parse(document.getElementById('raw-data-json').textContent);
+const symbol = selectedSymbols.length > 0 ? selectedSymbols[0] : null;
 
-console.log('rawData keys:', Object.keys(rawData));
-console.log('selectedSymbols:', selectedSymbols);
-let symbol = selectedSymbols.length > 0 ? selectedSymbols[0] : null;
-if (!symbol || !rawData[symbol]) {
-    // fallback to first available symbol in rawData
-    symbol = Object.keys(rawData)[0];
-    console.log('Fallback to symbol:', symbol);
-}
-console.log('symbol:', symbol);
-console.log('rawData[symbol]:', rawData[symbol]);
 let ohlcData = [];
 if (symbol && rawData[symbol]) {
     ohlcData = rawData[symbol].map(d => ({
@@ -115,7 +100,6 @@ if (symbol && rawData[symbol]) {
         d.close !== undefined && d.close !== null
     );
 }
-console.log('ohlcData', ohlcData);
 
 function groupOHLC(data, range) {
     if (range === 'default' || range === '1' || range === 1) return data;
@@ -136,35 +120,40 @@ function groupOHLC(data, range) {
 
 function drawChart(ohlcData) {
     d3.select("#priceChart").selectAll("svg").remove();
+    const container = d3.select("#priceChart").node();
+    if (!container) return;
+    const containerWidth = container.getBoundingClientRect().width;
     const margin = {top: 40, right: 30, bottom: 50, left: 60},
-          width = 1300 - margin.left - margin.right,
-          height = 600 - margin.top - margin.bottom;
+          width = containerWidth - margin.left - margin.right,
+          height = 500 - margin.top - margin.bottom;
+
     const svg = d3.select("#priceChart")
       .append("svg")
-        .attr("width", width + margin.left + margin.right)
+        .attr("width", containerWidth)
         .attr("height", height + margin.top + margin.bottom)
       .append("g")
         .attr("transform", `translate(${margin.left},${margin.top})`);
+    
     const x = d3.scaleBand()
       .domain(ohlcData.map(d => d.date))
       .range([0, width])
       .padding(0.3);
+      
     const y = d3.scaleLinear()
-      .domain([
-        d3.min(ohlcData, d => d.low),
-        d3.max(ohlcData, d => d.high)
-      ])
+      .domain([d3.min(ohlcData, d => d.low), d3.max(ohlcData, d => d.high)])
       .nice()
       .range([height, 0]);
+
     svg.append("g")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%Y-%m-%d")).tickValues(x.domain().filter((d, i) => !(i % Math.ceil(ohlcData.length / 10)))))
+      .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%Y-%m-%d")).tickValues(x.domain().filter((d, i) => !(i % Math.ceil(ohlcData.length / 20)))))
       .selectAll("text")
         .attr("transform", "rotate(-45)")
         .style("text-anchor", "end");
+        
     svg.append("g")
       .call(d3.axisLeft(y));
-    // Tooltip selection
+      
     const tooltip = d3.select("#d3-tooltip");
     function showTooltip(event, d) {
         tooltip.transition().duration(100).style("opacity", 1);
@@ -175,24 +164,15 @@ function drawChart(ohlcData) {
             `Low: <span style='color:#ffd32a'>${d.low}</span><br>` +
             `Close: <span style='color:#ffd32a'>${d.close}</span>`
         );
-        const chartRect = document.getElementById('priceChart').getBoundingClientRect();
-        const tooltipNode = tooltip.node();
-        const tooltipWidth = tooltipNode.offsetWidth;
-        const tooltipHeight = tooltipNode.offsetHeight;
-        let x = event.clientX - chartRect.left + 60;
-        let y = event.clientY - chartRect.top + 10;
-        if (x + tooltipWidth > chartRect.width) {
-            x = chartRect.width - tooltipWidth - 10;
-        }
-        if (y + tooltipHeight > chartRect.height) {
-            y = chartRect.height - tooltipHeight - 10;
-        }
-        tooltip.style("left", x + "px")
-               .style("top", y + "px");
+        const chartRect = container.getBoundingClientRect();
+        tooltip.style("left", (event.pageX - chartRect.left + 10) + "px")
+               .style("top", (event.pageY - chartRect.top - 110) + "px");
     }
+    
     function hideTooltip() {
         tooltip.transition().duration(200).style("opacity", 0);
     }
+    
     svg.selectAll(".wick")
       .data(ohlcData)
       .join("line")
@@ -206,6 +186,7 @@ function drawChart(ohlcData) {
         .on("mouseover", showTooltip)
         .on("mousemove", showTooltip)
         .on("mouseout", hideTooltip);
+        
     svg.selectAll(".candle")
       .data(ohlcData)
       .join("rect")
@@ -222,14 +203,15 @@ function drawChart(ohlcData) {
         .on("mouseout", hideTooltip);
 }
 
-// Initial data prep
-let groupedOhlcData = ohlcData;
-drawChart(groupedOhlcData);
-
-document.getElementById('candleRange').addEventListener('change', function() {
-    const range = this.value;
-    groupedOhlcData = groupOHLC(ohlcData, range);
+if (ohlcData.length > 0) {
+    let groupedOhlcData = ohlcData;
     drawChart(groupedOhlcData);
-});
+
+    document.getElementById('candleRange').addEventListener('change', function() {
+        const range = this.value;
+        groupedOhlcData = groupOHLC(ohlcData, range);
+        drawChart(groupedOhlcData);
+    });
+}
 </script>
 {% endblock %} 

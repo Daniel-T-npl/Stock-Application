@@ -1,0 +1,247 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<div class="container mt-4">
+    <div class="mb-4">
+        <div class="btn-group" role="group" aria-label="Graph Type Navigation">
+            <a href="/dashboard/candlestick/" class="btn btn-outline-primary{% if request.path == '/dashboard/candlestick/' %} active{% endif %}">Candlestick</a>
+            <a href="/dashboard/line/" class="btn btn-outline-primary{% if request.path == '/dashboard/line/' %} active{% endif %}">Line</a>
+            <a href="/dashboard/rsi/" class="btn btn-outline-primary{% if request.path == '/dashboard/rsi/' %} active{% endif %}">RSI</a>
+            <a href="/dashboard/bollinger/" class="btn btn-outline-primary{% if request.path == '/dashboard/bollinger/' %} active{% endif %}">Bollinger Bands</a>
+            <a href="/dashboard/arima/" class="btn btn-outline-primary{% if request.path == '/dashboard/arima/' %} active{% endif %}">ARIMA/GARCH</a>
+        </div>
+    </div>
+    <div class="row mb-4">
+        <div class="col">
+            <h1>RSI Dashboard</h1>
+            <form method="get" class="row g-3 align-items-end mb-4" id="rsiForm">
+                <div class="col-md-3">
+                    <label for="symbolSelect" class="form-label">Stocks</label>
+                    <select name="symbols" id="symbolSelect" class="form-select dark-select" multiple>
+                        {% for s in all_symbols %}
+                        <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="startDate" class="form-label">Start Date</label>
+                    <input type="date" name="start" id="startDate" class="form-control dark-select" value="{{ start_date }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="endDate" class="form-label">End Date</label>
+                    <input type="date" name="end" id="endDate" class="form-control dark-select" value="{{ end_date }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="overbought" class="form-label">Overbought</label>
+                    <input type="number" name="overbought" id="overbought" class="form-control dark-select" min="1" max="100" value="{{ overbought|default:70 }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="oversold" class="form-label">Oversold</label>
+                    <input type="number" name="oversold" id="oversold" class="form-control dark-select" min="1" max="100" value="{{ oversold|default:30 }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="rsiPeriod" class="form-label">RSI Period</label>
+                    <input type="number" id="rsiPeriod" name="period" class="form-control dark-select" min="1" max="50" value="{{ rsi_period|default:14 }}">
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <a href="/dashboard/rsi/" class="btn btn-primary w-100">Reset</a>
+                </div>
+            </form>
+            {% if data_json and data_json == '{}' %}
+                <p class="text-warning">No data available for the selected parameters</p>
+            {% endif %}
+        </div>
+    </div>
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">RSI Chart</h5>
+                    <div id="rsiChart"></div>
+                    <div id="d3-tooltip" class="tooltip" style="opacity:0; position:absolute;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{{ selected_symbols|json_script:"selected-symbols-data" }}
+<script id="raw-data-json" type="application/json">{{ data_json|safe }}</script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#symbolSelect').select2({ placeholder: 'Select symbols' });
+    
+    // Submit form immediately on stock select/unselect
+    $('#symbolSelect').on('select2:select select2:unselect', function() {
+        $('#rsiForm').submit();
+    });
+    
+    const selectedSymbols = JSON.parse(document.getElementById('selected-symbols-data').textContent);
+    const rawData = JSON.parse(document.getElementById('raw-data-json').textContent);
+
+    if (Object.keys(rawData).length > 0) {
+        drawRSIChart(selectedSymbols, rawData);
+    }
+
+    const form = document.getElementById('rsiForm');
+    form.querySelectorAll('input, select').forEach(function(el) {
+        el.addEventListener('change', function() {
+            form.submit();
+        });
+    });
+});
+function drawRSIChart(selectedSymbols, rawData) {
+    const overbought = parseInt(document.getElementById('overbought').value) || 70;
+    const oversold = parseInt(document.getElementById('oversold').value) || 30;
+    const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value) || 14;
+    const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+
+    function calculateRSI(data, period) {
+        if (!data || data.length <= period) return [];
+
+        let rsiData = [];
+        let gains = 0;
+        let losses = 0;
+
+        // Calculate initial average gain and loss
+        for (let i = 1; i <= period; i++) {
+            const change = data[i].close - data[i-1].close;
+            if (change > 0) {
+                gains += change;
+            } else {
+                losses -= change;
+            }
+        }
+
+        let avgGain = gains / period;
+        let avgLoss = losses / period;
+        
+        // Add initial RSI value
+        let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+        rsiData.push({ date: data[period].date, rsi: 100 - (100 / (1 + rs)) });
+
+        // Calculate subsequent RSI values using Wilder's smoothing
+        for (let i = period + 1; i < data.length; i++) {
+            const change = data[i].close - data[i-1].close;
+            let currentGain = change > 0 ? change : 0;
+            let currentLoss = change < 0 ? -change : 0;
+
+            avgGain = (avgGain * (period - 1) + currentGain) / period;
+            avgLoss = (avgLoss * (period - 1) + currentLoss) / period;
+            
+            rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+            rsiData.push({ date: data[i].date, rsi: 100 - (100 / (1 + rs)) });
+        }
+
+        // Pad the beginning of the array with nulls
+        const padding = Array(data.length - rsiData.length).fill(null).map((_, i) => ({date: data[i].date, rsi: null}));
+
+        return padding.concat(rsiData);
+    }
+    
+    d3.select("#rsiChart").selectAll("svg").remove();
+    const container = d3.select("#rsiChart").node();
+    if (!container) return;
+    const containerWidth = container.getBoundingClientRect().width;
+    const margin = {top: 40, right: 30, bottom: 50, left: 60},
+          width = containerWidth - margin.left - margin.right,
+          height = 500 - margin.top - margin.bottom;
+          
+    const svg = d3.select("#rsiChart")
+      .append("svg")
+        .attr("width", containerWidth)
+        .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+        
+    let allDates = new Set();
+    selectedSymbols.forEach((sym) => {
+        (rawData[sym] || []).forEach(d => allDates.add(d.date));
+    });
+    allDates = Array.from(allDates).sort();
+    
+    if (allDates.length === 0) return;
+
+    const x = d3.scaleBand()
+      .domain(allDates.map(d => new Date(d)))
+      .range([0, width])
+      .padding(0.1);
+      
+    const y = d3.scaleLinear()
+      .domain([0, 100])
+      .range([height, 0]);
+      
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%Y-%m-%d")).tickValues(x.domain().filter((d, i) => !(i % Math.ceil(allDates.length / 20)))))
+      .selectAll("text")
+        .attr("transform", "rotate(-45)")
+        .style("text-anchor", "end");
+        
+    svg.append("g")
+      .call(d3.axisLeft(y));
+      
+    svg.append("line")
+      .attr("x1", 0).attr("x2", width).attr("y1", y(overbought)).attr("y2", y(overbought))
+      .attr("stroke", "#ff6b6b").attr("stroke-width", 1).attr("stroke-dasharray", "5,5");
+    svg.append("line")
+      .attr("x1", 0).attr("x2", width).attr("y1", y(oversold)).attr("y2", y(oversold))
+      .attr("stroke", "#51cf66").attr("stroke-width", 1).attr("stroke-dasharray", "5,5");
+      
+    svg.append("text").attr("x", width - 120).attr("y", y(overbought) - 5).attr("fill", "#ff6b6b").text(`Overbought (${overbought})`);
+    svg.append("text").attr("x", width - 120).attr("y", y(oversold) + 15).attr("fill", "#51cf66").text(`Oversold (${oversold})`);
+      
+    const tooltip = d3.select("#d3-tooltip");
+    function showTooltip(event, d, sym) {
+        tooltip.transition().duration(100).style("opacity", 1);
+        tooltip.html(
+            `<strong>${sym}</strong><br>` +
+            `<span>${d3.timeFormat('%Y-%m-%d')(new Date(d.date))}</span><br>` +
+            `RSI: <span style='color:#0d6efd'>${d.rsi?.toFixed(2)}</span>`
+        );
+        const chartRect = container.getBoundingClientRect();
+        tooltip.style("left", (event.pageX - chartRect.left + 10) + "px")
+               .style("top", (event.pageY - chartRect.top - 30) + "px");
+    }
+    
+    function hideTooltip() {
+        tooltip.transition().duration(200).style("opacity", 0);
+    }
+    
+    selectedSymbols.forEach((sym, index) => {
+        const data = (rawData[sym] || []).map(d => ({...d, date: new Date(d.date)}));
+        const rsiData = calculateRSI(data, rsiPeriod);
+        
+        svg.append("path")
+            .datum(rsiData.filter(d => d.rsi !== null))
+            .attr("fill", "none")
+            .attr("stroke", colorScale(index))
+            .attr("stroke-width", 2)
+            .attr("d", d3.line()
+                .x(d => x(new Date(d.date)) + x.bandwidth()/2)
+                .y(d => y(d.rsi))
+            );
+            
+        svg.selectAll(`.rsi-dot-${sym}`)
+            .data(rsiData.filter(d => d.rsi !== null))
+            .join("circle")
+            .attr("class", `rsi-dot-${sym}`)
+            .attr("cx", d => x(new Date(d.date)) + x.bandwidth()/2)
+            .attr("cy", d => y(d.rsi))
+            .attr("r", 2)
+            .attr("fill", colorScale(index))
+            .on("mouseover", (event, d) => showTooltip(event, d, sym))
+            .on("mouseout", hideTooltip);
+    });
+    
+    const legend = svg.append("g").attr("class", "chart-legend").attr("transform", `translate(0,-30)`);
+    selectedSymbols.forEach((sym, index) => {
+        const legendItem = legend.append("g").attr("class", "legend-item").attr("transform", `translate(${index*120},0)`);
+        legendItem.append("rect").attr("width", 18).attr("height", 6).attr("fill", colorScale(index));
+        legendItem.append("text").attr("x", 24).attr("y", 12).text(sym).style("fill", colorScale(index)).style("font-size", "14px");
+    });
+}
+</script>
+{% endblock %} 

@@ -5,7 +5,7 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-from stocks.influx_client import InfluxDBHandler
+from analysis.influx_client import InfluxDBHandler
 import os
 
 # Set up logging
@@ -146,7 +146,7 @@ def main():
     logger.info("Press Ctrl+C to stop the scraper")
     
     # Schedule the job to run every 5 minutes
-    schedule.every(30).minutes.do(scrape_and_save)
+    schedule.every(300).minutes.do(scrape_and_save)
     
     # Run immediately on startup
     scrape_and_save()

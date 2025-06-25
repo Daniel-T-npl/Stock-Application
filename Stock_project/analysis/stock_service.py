@@ -1,18 +1,17 @@
 import os
 from datetime import datetime, timedelta
 import requests
-from dotenv import load_dotenv
-from influxdb_client import Point
-from .influx_client import client, write_api, query_api
-
-# Load environment variables
-load_dotenv()
+from influxdb_client.client.write.point import Point
+from analysis.influx_client import influx_client
+import pandas as pd
+from django.conf import settings
 
 class StockService:
     def __init__(self):
-        self.alpha_vantage_api_key = os.getenv('ALPHA_VANTAGE_API_KEY')
-        self.bucket = os.getenv('INFLUX_BUCKET')
-        self.org = os.getenv('INFLUX_ORG')
+        self.alpha_vantage_api_key = settings.ALPHA_VANTAGE_API_KEY
+        self.bucket = settings.INFLUXDB_BUCKET
+        self.org = settings.INFLUXDB_ORG
+        self.query_api = influx_client.get_query_api()
 
     def fetch_stock_data(self, symbol, interval='1min'):
         """
@@ -41,6 +40,8 @@ class StockService:
         Store stock data in InfluxDB
         """
         try:
+            write_api = influx_client.get_write_api()
+            assert self.bucket is not None
             for timestamp, values in data.items():
                 point = Point("stock_data") \
                     .tag("symbol", symbol) \
@@ -68,6 +69,8 @@ class StockService:
             end_time = datetime.utcnow()
 
         try:
+            query_api = influx_client.get_query_api()
+            assert self.bucket is not None
             query = f'''
                 from(bucket: "{self.bucket}")
                     |> range(start: {start_time.isoformat()}, stop: {end_time.isoformat()})
@@ -80,6 +83,42 @@ class StockService:
         except Exception as e:
             print(f"Error retrieving stock data: {str(e)}")
             return None
+
+    def get_stock_data_df(self, ticker: str, start: str = "2021-01-03", stop: str = "2025-06-20") -> pd.DataFrame:
+        """
+        Fetches stock data for a given ticker and returns it as a Pandas DataFrame.
+        The DataFrame is indexed by time.
+        """
+        query = f'''
+        from(bucket: "{self.bucket}")
+          |> range(start: {start}T00:00:00Z, stop: {stop}T00:00:00Z)
+          |> filter(fn: (r) => r["_measurement"] == "stock_data")
+          |> filter(fn: (r) => r["symbol"] == "{ticker}")
+          |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+          |> keep(columns: ["_time", "open", "high", "low", "close", "volume", "turnover"])
+          |> sort(columns: ["_time"])
+        '''
+        try:
+            result = self.query_api.query_data_frame(query=query)
+            if isinstance(result, list):
+                if not result:
+                    return pd.DataFrame()
+                df = pd.concat(result)
+            else:
+                df = result
+
+            if df.empty:
+                return df
+                
+            df.rename(columns={"_time": "time"}, inplace=True)
+            df["time"] = pd.to_datetime(df["time"])
+            df.set_index("time", inplace=True)
+            # Drop unnecessary columns often returned by InfluxDB
+            df.drop(columns=['result', 'table'], inplace=True, errors='ignore')
+            return df
+        except Exception as e:
+            print(f"Error fetching data for {ticker}: {e}")
+            return pd.DataFrame()
 
     def update_stock_data(self, symbol):
         """

@@ -1,0 +1,283 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="mb-4">
+        <div class="btn-group" role="group" aria-label="Graph Type Navigation">
+            <a href="/dashboard/candlestick/" class="btn btn-outline-primary">Candlestick</a>
+            <a href="/dashboard/line/" class="btn btn-outline-primary">Line</a>
+            <a href="/dashboard/rsi/" class="btn btn-outline-primary">RSI</a>
+            <a href="/dashboard/bollinger/" class="btn btn-outline-primary active">Bollinger Bands</a>
+            <a href="/dashboard/arima/" class="btn btn-outline-primary">ARIMA/GARCH</a>
+        </div>
+    </div>
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Bollinger Bands Dashboard</h1>
+            <form method="get" class="row g-3 align-items-end mb-4" id="bollingerForm">
+                <div class="col-md-3">
+                    <label for="symbolSelect" class="form-label">Stock</label>
+                    <select name="symbols" id="symbolSelect" class="form-select dark-select">
+                        {% for s in all_symbols %}
+                        <option value="{{ s }}" {% if s in selected_symbols %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="startDate" class="form-label">Start Date</label>
+                    <input type="date" name="start" id="startDate" class="form-control dark-select" value="{{ start_date }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="endDate" class="form-label">End Date</label>
+                    <input type="date" name="end" id="endDate" class="form-control dark-select" value="{{ end_date }}">
+                </div>
+                <div class="col-md-2">
+                    <label for="maWindow" class="form-label">MA Window</label>
+                    <input type="number" name="ma" id="maWindow" class="form-control dark-select" value="{{ ma_window }}" min="1" max="100">
+                </div>
+                <div class="col-md-2">
+                    <label for="stddev" class="form-label">Std Dev</label>
+                    <input type="number" name="stddev" id="stddev" class="form-control dark-select" value="{{ stddev }}" min="0.1" max="5" step="0.1">
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <a href="/dashboard/bollinger/" class="btn btn-primary w-100">Reset</a>
+                </div>
+            </form>
+            <p id="no-data-warning" class="text-warning" style="display:none;">No data available for the selected parameters</p>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Bollinger Bands Chart</h5>
+                    <div id="bollingerChart"></div>
+                    <div id="d3-tooltip" class="tooltip" style="opacity:0; position:absolute;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+#bollingerChart, #no-data-warning { display: none; }
+</style>
+<script>
+$(document).ready(function() {
+   
+    // Prevent form submission from reloading the page
+    $('#bollingerForm').on('submit', function(e) {
+        e.preventDefault();
+        fetchAndDraw(); // Call fetchAndDraw on submit
+    });
+    // Fetch data on any change
+    $('#bollingerForm').on('change', 'input, select', function() {
+        $('#bollingerForm').submit();
+    });
+    // Initial fetch
+    fetchAndDraw();
+});
+
+function fetchAndDraw() {
+    let symbols = $('#symbolSelect').val();
+    if (!Array.isArray(symbols)) {
+        symbols = symbols ? [symbols] : [];
+    }
+    const startDate = $('#startDate').val();
+    const endDate = $('#endDate').val();
+    const maWindow = $('#maWindow').val();
+    const stddev = $('#stddev').val();
+    if (!symbols || symbols.length === 0) {
+        $('#bollingerChart').hide();
+        $('#no-data-warning').hide();
+        return;
+    }
+    const url = `/api/bollinger/?symbols=${symbols.join(',')}&start=${startDate}&end=${endDate}&ma=${maWindow}&stddev=${stddev}`;
+    fetch(url)
+        .then(resp => {
+            if (!resp.ok) {
+                console.error("API request failed with status:", resp.status);
+                $('#bollingerChart').hide();
+                $('#no-data-warning').show();
+                return { data: [] };
+            }
+            return resp.json();
+        })
+        .then(apiResponse => {
+            console.log("API Response:", apiResponse);
+            if (apiResponse.data && Object.keys(apiResponse.data).length > 0) {
+                $('#bollingerChart').show();
+                $('#no-data-warning').hide();
+            } else {
+                $('#bollingerChart').hide();
+                $('#no-data-warning').show();
+            }
+            drawBollingerChart(apiResponse.data || []);
+        })
+        .catch(error => {
+            console.error("Error fetching or parsing data:", error);
+            $('#bollingerChart').hide();
+            $('#no-data-warning').show();
+            drawBollingerChart([]);
+        });
+}
+
+function drawBollingerChart(dataObj) {
+    d3.select("#bollingerChart").selectAll("svg").remove();
+    // If dataObj is not an object, bail out
+    if (!dataObj || typeof dataObj !== 'object') {
+        document.getElementById('no-data-warning').style.display = '';
+        return;
+    }
+    const symbols = Object.keys(dataObj);
+    if (symbols.length === 0) {
+        document.getElementById('no-data-warning').style.display = '';
+        return;
+    }
+    // Use the first symbol's data
+    let data = dataObj[symbols[0]] || [];
+    // Parse data
+    const parseDate = d3.timeParse("%Y-%m-%d");
+    data = data.map(d => ({
+        ...d,
+        date: parseDate(d.date),
+        close: +d.close,
+        ma: d.ma !== undefined ? +d.ma : null,
+        upper: d.upper !== undefined ? +d.upper : null,
+        lower: d.lower !== undefined ? +d.lower : null
+    }));
+    // More robust date validity check
+    const validClose = data.filter(d => d.date && !isNaN(d.date.getTime()) && !isNaN(d.close));
+    console.log('validClose:', validClose);
+    if (!validClose || validClose.length === 0) {
+        document.getElementById('no-data-warning').style.display = '';
+        return;
+    } else {
+        document.getElementById('no-data-warning').style.display = 'none';
+    }
+    // X domain: all valid dates
+    const xDomain = d3.extent(validClose, d => d.date);
+    console.log('xDomain:', xDomain);
+    // Y domain: min/max of all valid close, ma, upper, lower
+    const yValues = [];
+    data.forEach(d => {
+        if (!isNaN(d.close)) yValues.push(d.close);
+        if (d.ma !== null && !isNaN(d.ma)) yValues.push(d.ma);
+        if (d.upper !== null && !isNaN(d.upper)) yValues.push(d.upper);
+        if (d.lower !== null && !isNaN(d.lower)) yValues.push(d.lower);
+    });
+    if (yValues.length === 0) {
+        document.getElementById('no-data-warning').style.display = '';
+        return;
+    }
+    const yDomain = [d3.min(yValues), d3.max(yValues)];
+    console.log('yDomain:', yDomain);
+    let container = d3.select("#bollingerChart").node();
+    let containerWidth = container.getBoundingClientRect().width;
+    if (!containerWidth || containerWidth < 100) {
+        containerWidth = 900; // fallback
+        console.log('Fallback containerWidth used:', containerWidth);
+    } else {
+        console.log('containerWidth:', containerWidth);
+    }
+    const margin = {top: 40, right: 30, bottom: 50, left: 60},
+        width = containerWidth - margin.left - margin.right,
+        height = 500 - margin.top - margin.bottom;
+    const svg = d3.select("#bollingerChart")
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+    // X and Y scales
+    const x = d3.scaleTime()
+        .domain(xDomain)
+        .range([0, width]);
+    const y = d3.scaleLinear()
+        .domain(yDomain)
+        .nice()
+        .range([height, 0]);
+    // Axes
+    svg.append("g")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x));
+    svg.append("g")
+        .call(d3.axisLeft(y));
+    // Price line (all data)
+    svg.append("path")
+        .datum(validClose)
+        .attr("fill", "none")
+        .attr("stroke", "#007bff")
+        .attr("stroke-width", 2)
+        .attr("d", d3.line()
+            .x(d => x(d.date))
+            .y(d => y(d.close))
+        );
+    // MA line (only where valid and > 0)
+    svg.append("path")
+        .datum(data)
+        .attr("fill", "none")
+        .attr("stroke", "#28a745")
+        .attr("stroke-width", 1.5)
+        .attr("d", d3.line()
+            .defined(d => d.ma !== null && d.ma > 0)
+            .x(d => x(d.date))
+            .y(d => y(d.ma))
+        );
+    // Upper band (only where valid and > 0)
+    svg.append("path")
+        .datum(data)
+        .attr("fill", "none")
+        .attr("stroke", "#ffc107")
+        .attr("stroke-width", 1)
+        .attr("d", d3.line()
+            .defined(d => d.upper !== null && d.upper > 0)
+            .x(d => x(d.date))
+            .y(d => y(d.upper))
+        );
+    // Lower band (only where valid and > 0)
+    svg.append("path")
+        .datum(data)
+        .attr("fill", "none")
+        .attr("stroke", "#ffc107")
+        .attr("stroke-width", 1)
+        .attr("d", d3.line()
+            .defined(d => d.lower !== null && d.lower > 0)
+            .x(d => x(d.date))
+            .y(d => y(d.lower))
+        );
+    // Tooltip for price line
+    const tooltip = d3.select("#d3-tooltip");
+    svg.selectAll(".dot")
+        .data(validClose)
+        .enter().append("circle")
+        .attr("class", "dot")
+        .attr("cx", d => x(d.date))
+        .attr("cy", d => y(d.close))
+        .attr("r", 2)
+        .attr("fill", "#007bff")
+        .on("mouseover", function(event, d) {
+            const chartRect = container.getBoundingClientRect();
+            tooltip.transition().duration(100).style("opacity", 1);
+            tooltip.html(
+                `<strong>${d3.timeFormat('%Y-%m-%d')(d.date)}</strong><br>` +
+                `Close: <span style='color:#007bff'>${d.close}</span><br>` +
+                `MA: <span style='color:#28a745'>${d.ma?.toFixed(2) ?? ''}</span><br>` +
+                `Upper: <span style='color:#ffc107'>${d.upper?.toFixed(2) ?? ''}</span><br>` +
+                `Lower: <span style='color:#ffc107'>${d.lower?.toFixed(2) ?? ''}</span>`
+            );
+            tooltip.style("left", (event.pageX - chartRect.left + 10) + "px")
+                   .style("top", (event.pageY - chartRect.top - 60) + "px");
+        })
+        .on("mouseout", function() {
+            tooltip.transition().duration(200).style("opacity", 0);
+        });
+}
+</script>
+{% endblock %} 

@@ -1,11 +1,14 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import csv
 import re
 from datetime import datetime
-from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.influxdb_client import InfluxDBClient
+from influxdb_client.client.write.point import Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import os
 from dotenv import load_dotenv
-from stocks.influx_client import InfluxDBHandler
+from analysis.influx_client import InfluxDBHandler
 
 # Load environment variables
 load_dotenv()

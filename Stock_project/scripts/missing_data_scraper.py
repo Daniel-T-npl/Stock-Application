@@ -1,3 +1,8 @@
+import sys
+import os
+# Add the project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -7,9 +12,8 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import logging
 from datetime import datetime
-from stocks.influx_client import InfluxDBHandler
+from analysis.influx_client import InfluxDBHandler
 import time
-import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,7 +105,7 @@ def scrape_stock_history(symbol, driver):
                 logger.warning(f"Invalid date format: {date_str}")
                 continue
             # TEMP: Set cutoff to a very old date for testing
-            if row_date <= datetime.strptime("2023/04/15", "%Y/%m/%d"):
+            if row_date <= datetime.strptime("2025/06/21", "%Y/%m/%d"):
                 logger.info(f"{symbol}: Hit cutoff at {date_str}, stopping for this stock.")
                 stop_scraping = True
                 break  # Stop processing further rows on this page
