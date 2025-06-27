@@ -11,7 +11,7 @@ import logging
 import pandas as pd
 import numpy as np
 from analysis.analysis_service import AnalysisService
-from analysis.statistical_service import generate_forecast_graph, generate_forecast_data
+from analysis.statistical_service import generate_forecast_graph, generate_forecast_data, generate_and_save_forecast_image
 
 
 # Set up logging
@@ -434,6 +434,7 @@ def arima_dashboard(request):
     """
     Renders the ARIMA dashboard page with form controls.
     The data is fetched asynchronously by the frontend.
+    Now also generates a PNG forecast image and passes its path to the template.
     """
     all_symbols = get_all_symbols()
     selected_symbol = request.GET.get('symbol', 'API')
@@ -443,12 +444,25 @@ def arima_dashboard(request):
     model_end_date = request.GET.get('model_end', datetime.now().strftime('%Y-%m-%d'))
     forecast_end_date = request.GET.get('forecast_end', (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d'))
 
+    # Only generate the image if all params are present (i.e., after form submit)
+    forecast_image_url = None
+    if all([selected_symbol, model_start_date, model_end_date, forecast_end_date]) and request.GET.get('symbol'):
+        # Generate the PNG (will be saved to static/forecasts/forecast_{symbol}.png)
+        generate_and_save_forecast_image(
+            symbol=selected_symbol,
+            model_start_date=model_start_date,
+            model_end_date=model_end_date,
+            forecast_end_date=forecast_end_date
+        )
+        forecast_image_url = f"/static/forecasts/forecast_{selected_symbol}.png"
+
     context = {
         'all_symbols': all_symbols,
         'selected_symbol': selected_symbol,
         'model_start_date': model_start_date,
         'model_end_date': model_end_date,
         'forecast_end_date': forecast_end_date,
+        'forecast_image_url': forecast_image_url,
     }
     return render(request, 'stocks/arima.html', context)
 

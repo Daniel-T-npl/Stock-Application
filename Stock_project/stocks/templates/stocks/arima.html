@@ -2,56 +2,21 @@
 {% load static %}
 
 {% block extra_head %}
-<script src="https://d3js.org/d3.v7.min.js"></script>
+<!-- D3.js and custom styles are no longer needed for PNG-only mode -->
 <style>
     .chart-container {
         position: relative;
         font-family: Arial, sans-serif;
     }
-    .tooltip {
-        position: absolute;
-        text-align: left;
-        padding: 8px;
-        font: 12px sans-serif;
-        background: lightsteelblue;
-        border: 0px;
+    .placeholder-message {
+        text-align: center;
+        color: #666;
+        font-style: italic;
+        padding: 40px;
+        background-color: #f8f9fa;
+        border: 1px dashed #dee2e6;
         border-radius: 8px;
-        pointer-events: none;
-        opacity: 0;
-    }
-    .axis path,
-    .axis line {
-        fill: none;
-        stroke: #000;
-        shape-rendering: crispEdges;
-    }
-    .line {
-        fill: none;
-        stroke-width: 2px;
-    }
-    .area {
-        opacity: 0.3;
-    }
-    #loader {
-        display: none;
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        border: 8px solid #f3f3f3;
-        border-radius: 50%;
-        border-top: 8px solid #3498db;
-        width: 60px;
-        height: 60px;
-        animation: spin 2s linear infinite;
-    }
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-    #arima-chart, #garch-chart {
-        min-height: 320px;
-        margin-bottom: 32px;
+        margin: 20px 0;
     }
 </style>
 {% endblock %}
@@ -94,269 +59,25 @@
         </div>
     </form>
 
-    <div class="chart-container">
-        <h5 class="card-title" id="arima-chart-title">ARIMA Price Forecast</h5>
-        <div id="arima-chart"></div>
-        <hr>
-        <h5 class="card-title" id="garch-chart-title">GARCH Volatility Forecast</h5>
-        <div id="garch-chart"></div>
-        <div id="loader"></div>
-        <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+    {% if not forecast_image_url %}
+    <div id="arima-default-message" class="text-center my-3" style="color:#666; font-style:italic; background-color:#f8f9fa; border:1px dashed #dee2e6; border-radius:8px; padding:24px;">
+        Select parameters and click "Go" to generate ARIMA and GARCH forecasts
     </div>
+    {% endif %}
+
+    {% if forecast_image_url %}
+        <div class="row mb-4">
+            <div class="col">
+                <div class="card mb-4" style="background-color:#3b3846; color:#fff;">
+                    <div class="card-body">
+                        <h5 class="card-title">Forecast Chart</h5>
+                        <img src="{{ forecast_image_url }}" alt="Forecast Chart" class="img-fluid" style="background:#3b3846; border-radius:8px; width:100%; max-width:1200px; display:block; margin:auto;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <!-- Optionally, you can show a placeholder or instructions here -->
+    {% endif %}
 </div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('arimaForm');
-    const loader = document.getElementById('loader');
-    const errorMessageDiv = document.getElementById('error-message');
-
-    function fetchDataAndDrawCharts() {
-        const symbol = document.getElementById('symbolSelect').value;
-        const modelStart = document.getElementById('modelStartDate').value;
-        const modelEnd = document.getElementById('modelEndDate').value;
-        const forecastEnd = document.getElementById('forecastEndDate').value;
-
-        const url = `/api/arima/?symbol=${symbol}&model_start=${modelStart}&model_end=${modelEnd}&forecast_end=${forecastEnd}`;
-        console.log('[ARIMA] Fetching:', url);
-
-        // Show loader and hide previous results/errors
-        loader.style.display = 'block';
-        errorMessageDiv.style.display = 'none';
-        d3.select("#arima-chart").selectAll("*").remove();
-        d3.select("#garch-chart").selectAll("*").remove();
-        document.getElementById('arima-chart-title').innerText = 'ARIMA Price Forecast';
-        document.getElementById('garch-chart-title').innerText = 'GARCH Volatility Forecast';
-
-        d3.json(url).then(data => {
-            loader.style.display = 'none';
-            console.log('[ARIMA] API data:', data);
-
-            if (data.error) {
-                errorMessageDiv.innerText = `Error: ${data.error}`;
-                errorMessageDiv.style.display = 'block';
-                return;
-            }
-            if (!data.dates || data.dates.length === 0) {
-                errorMessageDiv.innerText = 'No data available for the selected parameters.';
-                errorMessageDiv.style.display = 'block';
-                return;
-            }
-            
-            document.getElementById('arima-chart-title').innerText = `ARIMA Price Forecast for ${symbol}`;
-            document.getElementById('garch-chart-title').innerText = `GARCH Volatility Forecast for ${symbol}`;
-
-            const parseDate = d3.timeParse("%Y-%m-%d");
-
-            // Prepare ARIMA data
-            const arimaData = data.dates.map((date, i) => ({
-                date: parseDate(date),
-                actual: data.actual_close[i],
-                forecast: data.forecast[i],
-                lower: data.conf_int_lower[i],
-                upper: data.conf_int_upper[i]
-            }));
-            console.log('[ARIMA] arimaData:', arimaData);
-
-            // Prepare GARCH data
-            const garchData = data.garch_dates.map((date, i) => ({
-                date: parseDate(date),
-                volatility: data.garch_volatility[i]
-            }));
-            console.log('[ARIMA] garchData:', garchData);
-            
-            const forecastStartDate = parseDate(data.forecast_start_date);
-            console.log('[ARIMA] forecastStartDate:', forecastStartDate);
-
-            try {
-                console.log('[ARIMA] Drawing ARIMA chart...');
-                drawArimaChart(arimaData, forecastStartDate);
-                console.log('[ARIMA] Drawing GARCH chart...');
-                drawGarchChart(garchData, forecastStartDate);
-                console.log('[ARIMA] Drawing complete.');
-            } catch (err) {
-                console.error('[ARIMA] D3 drawing error:', err);
-                errorMessageDiv.innerText = 'Error drawing charts: ' + err;
-                errorMessageDiv.style.display = 'block';
-            }
-
-        }).catch(error => {
-            loader.style.display = 'none';
-            errorMessageDiv.innerText = 'An unexpected error occurred while fetching data.';
-            errorMessageDiv.style.display = 'block';
-            console.error('[ARIMA] Fetch Error:', error);
-        });
-    }
-
-    function drawArimaChart(data, forecastStartDate) {
-        const container = d3.select("#arima-chart");
-        const margin = {top: 20, right: 30, bottom: 30, left: 50},
-            width = container.node().getBoundingClientRect().width - margin.left - margin.right,
-            height = 400 - margin.top - margin.bottom;
-
-        if (!data || data.length === 0) {
-            container.append('div').text('No ARIMA data to display.');
-            return;
-        }
-
-        const svg = container.append("svg")
-            .attr("width", width + margin.left + margin.right)
-            .attr("height", height + margin.top + margin.bottom)
-            .append("g")
-            .attr("transform", `translate(${margin.left},${margin.top})`);
-
-        const x = d3.scaleTime().range([0, width]);
-        const y = d3.scaleLinear().range([height, 0]);
-
-        const allValues = data.flatMap(d => [d.actual, d.forecast, d.lower, d.upper]).filter(v => v != null);
-        x.domain(d3.extent(data, d => d.date));
-        y.domain([d3.min(allValues) * 0.95, d3.max(allValues) * 1.05]);
-
-        // --- AXES ---
-        svg.append("g")
-            .attr("class", "axis axis--x")
-            .attr("transform", `translate(0,${height})`)
-            .call(d3.axisBottom(x));
-        svg.append("g")
-            .attr("class", "axis axis--y")
-            .call(d3.axisLeft(y).ticks(10).tickFormat(d => d.toFixed(2)));
-
-        // --- FORECAST BACKGROUND ---
-        svg.append("rect")
-            .attr("x", x(forecastStartDate))
-            .attr("y", 0)
-            .attr("width", x(d3.max(data, d => d.date)) - x(forecastStartDate))
-            .attr("height", height)
-            .attr("fill", "#f0f0f0");
-            
-        // --- FORECAST SEPARATOR LINE ---
-        svg.append("line")
-            .attr("x1", x(forecastStartDate))
-            .attr("x2", x(forecastStartDate))
-            .attr("y1", 0)
-            .attr("y2", height)
-            .attr("stroke", "red")
-            .attr("stroke-width", 1.5)
-            .attr("stroke-dasharray", "4");
-
-        // --- DATA LINES AND AREAS ---
-        const actualLine = d3.line()
-            .x(d => x(d.date))
-            .y(d => y(d.actual))
-            .defined(d => d.actual != null);
-
-        const forecastLine = d3.line()
-            .x(d => x(d.date))
-            .y(d => y(d.forecast))
-            .defined(d => d.forecast != null);
-
-        const confidenceArea = d3.area()
-            .x(d => x(d.date))
-            .y0(d => y(d.lower))
-            .y1(d => y(d.upper))
-            .defined(d => d.lower != null && d.upper != null);
-
-        svg.append("path")
-            .datum(data)
-            .attr("class", "area")
-            .attr("fill", "steelblue")
-            .attr("d", confidenceArea);
-
-        svg.append("path")
-            .datum(data)
-            .attr("class", "line")
-            .attr("stroke", "blue")
-            .attr("d", actualLine);
-
-        svg.append("path")
-            .datum(data)
-            .attr("class", "line")
-            .attr("stroke", "orange")
-            .style("stroke-dasharray", ("3, 3"))
-            .attr("d", forecastLine);
-    }
-    
-    function drawGarchChart(data, forecastStartDate) {
-        const container = d3.select("#garch-chart");
-        const margin = {top: 20, right: 30, bottom: 30, left: 50},
-            width = container.node().getBoundingClientRect().width - margin.left - margin.right,
-            height = 300 - margin.top - margin.bottom;
-
-        if (!data || data.length === 0) {
-            container.append('div').text('No GARCH data to display.');
-            return;
-        }
-
-        const svg = container.append("svg")
-            .attr("width", width + margin.left + margin.right)
-            .attr("height", height + margin.top + margin.bottom)
-            .append("g")
-            .attr("transform", `translate(${margin.left},${margin.top})`);
-
-        const x = d3.scaleTime().range([0, width]);
-        const y = d3.scaleLinear().range([height, 0]);
-
-        x.domain(d3.extent(data, d => d.date));
-        y.domain([0, d3.max(data, d => d.volatility) * 1.1]);
-
-        svg.append("g")
-            .attr("transform", `translate(0,${height})`)
-            .call(d3.axisBottom(x));
-
-        svg.append("g")
-            .call(d3.axisLeft(y).ticks(5));
-
-        // --- FORECAST BACKGROUND & LINE ---
-        svg.append("rect")
-            .attr("x", x(forecastStartDate))
-            .attr("y", 0)
-            .attr("width", x(d3.max(data, d => d.date)) - x(forecastStartDate))
-            .attr("height", height)
-            .attr("fill", "#f0f0f0");
-            
-        svg.append("line")
-            .attr("x1", x(forecastStartDate))
-            .attr("x2", x(forecastStartDate))
-            .attr("y1", 0)
-            .attr("y2", height)
-            .attr("stroke", "red")
-            .attr("stroke-width", 1.5)
-            .attr("stroke-dasharray", "4");
-
-        // --- DATA LINE ---
-        const volatilityLine = d3.line()
-            .x(d => x(d.date))
-            .y(d => y(d.volatility));
-
-        const historicalData = data.filter(d => d.date < forecastStartDate);
-        const forecastData = data.filter(d => d.date >= forecastStartDate);
-        
-        // Add historical point to forecast to connect lines
-        if (historicalData.length > 0) {
-            forecastData.unshift(historicalData[historicalData.length - 1]);
-        }
-
-        svg.append("path")
-            .datum(historicalData)
-            .attr("class", "line")
-            .attr("stroke", "green")
-            .attr("d", volatilityLine);
-
-        svg.append("path")
-            .datum(forecastData)
-            .attr("class", "line")
-            .attr("stroke", "purple")
-            .style("stroke-dasharray", ("3, 3"))
-            .attr("d", volatilityLine);
-    }
-
-    form.addEventListener('submit', function(event) {
-        event.preventDefault();
-        fetchDataAndDrawCharts();
-    });
-
-    // Initial fetch
-    fetchDataAndDrawCharts();
-});
-</script>
 {% endblock %} 
