@@ -19,4 +19,6 @@ urlpatterns = [
     path('dashboard/arima/', views.arima_dashboard, name='arima_dashboard'),
     path('api/bollinger/', views.api_bollinger_data, name='api_bollinger_data'),
     path('api/arima/', views.api_arima_data, name='api_arima_data'),
+    path('api/ohlcv_indicators/', views.get_ohlcv_and_indicators, name='ohlcv_indicators_api'),
+    path('dashboard/', views.interactive_dashboard, name='interactive_dashboard'),
 ] 

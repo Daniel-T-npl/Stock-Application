@@ -1,7 +1,15 @@
-import sys
 import os
-# Add the project root to Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sys
+
+# Dynamically determine the project root (the parent of the directory containing this script)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Set up Django settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'stocksite.settings')
+import django
+django.setup()
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -105,7 +113,7 @@ def scrape_stock_history(symbol, driver):
                 logger.warning(f"Invalid date format: {date_str}")
                 continue
             # TEMP: Set cutoff to a very old date for testing
-            if row_date <= datetime.strptime("2025/06/21", "%Y/%m/%d"):
+            if row_date <= datetime.strptime("2025/06/24", "%Y/%m/%d"):
                 logger.info(f"{symbol}: Hit cutoff at {date_str}, stopping for this stock.")
                 stop_scraping = True
                 break  # Stop processing further rows on this page

@@ -120,8 +120,8 @@ def analyze_acf_pacf(series, title="Series"):
     return suggested_p, suggested_q
 
 def find_best_arima_model(close_series):
-    """Find the best ARIMA model using systematic analysis."""
-    print("DEBUG: Starting systematic ARIMA model selection...")
+    """Find the best ARIMA model using systematic analysis with more comprehensive search."""
+    print("DEBUG: Starting comprehensive ARIMA model selection...")
     
     # Step 1: Test stationarity of original series
     is_stationary = test_stationarity(close_series, "Close Prices")
@@ -155,21 +155,23 @@ def find_best_arima_model(close_series):
     # Step 3: Analyze ACF/PACF for p and q suggestions
     suggested_p, suggested_q = analyze_acf_pacf(working_series, f"Series with d={d}")
     
-    # Step 4: Focused grid search around suggested values
+    # Step 4: More comprehensive grid search
     best_aic = float('inf')
     best_order = (1, d, 1)  # default fallback
     best_model = None
     
-    print(f"\nDEBUG: Focused grid search with d={d}")
+    print(f"\nDEBUG: Comprehensive grid search with d={d}")
     print(f"DEBUG: ACF/PACF suggested p={suggested_p}, q={suggested_q}")
     print("DEBUG: Testing ARIMA models...")
     
-    # Create a focused search around the suggested values
-    p_range = range(max(0, suggested_p-1), min(4, suggested_p+2))
-    q_range = range(max(0, suggested_q-1), min(4, suggested_q+2))
+    # Create a more comprehensive search
+    p_range = range(0, min(6, suggested_p + 3))
+    q_range = range(0, min(6, suggested_q + 3))
     
     print(f"DEBUG: Testing p values: {list(p_range)}")
     print(f"DEBUG: Testing q values: {list(q_range)}")
+    
+    models_tested = []
     
     for p in p_range:
         for q in q_range:
@@ -177,6 +179,12 @@ def find_best_arima_model(close_series):
                 model = ARIMA(close_series, order=(p, d, q))
                 fitted_model = model.fit()
                 aic = fitted_model.aic
+                
+                models_tested.append({
+                    'order': (p, d, q),
+                    'aic': aic,
+                    'model': fitted_model
+                })
                 
                 print(f"DEBUG: ARIMA({p},{d},{q}) - AIC: {aic:.2f}")
                 
@@ -189,6 +197,13 @@ def find_best_arima_model(close_series):
             except Exception as e:
                 print(f"DEBUG: ARIMA({p},{d},{q}) failed: {e}")
                 continue
+    
+    # Sort models by AIC for comparison
+    models_tested.sort(key=lambda x: x['aic'])
+    
+    print(f"\nDEBUG: Top 5 models by AIC:")
+    for i, model_info in enumerate(models_tested[:5]):
+        print(f"  {i+1}. ARIMA{model_info['order']} - AIC: {model_info['aic']:.2f}")
     
     print(f"\nDEBUG: Final selected model: ARIMA{best_order} with AIC: {best_aic:.2f}")
     
@@ -245,9 +260,98 @@ def generate_moving_average_forecast(close_series, forecast_steps, ma_window=10)
     
     return np.array(forecast_values), np.array(confidence_interval)
 
+def generate_ensemble_forecast(train_series, test_size, future_steps):
+    """Generate ensemble forecast using multiple approaches."""
+    print("DEBUG: Generating ensemble forecast...")
+    
+    forecasts = []
+    weights = []
+    
+    # 1. ARIMA forecast
+    try:
+        best_order = find_best_arima_model(train_series)
+        arima_model = ARIMA(train_series, order=best_order)
+        fitted_arima = arima_model.fit()
+        arima_forecast = fitted_arima.forecast(steps=test_size + future_steps)
+        
+        if hasattr(arima_forecast, 'predicted_mean'):
+            arima_values = arima_forecast.predicted_mean.values
+        else:
+            arima_values = arima_forecast
+            
+        forecasts.append(arima_values)
+        weights.append(0.4)  # ARIMA gets higher weight
+        print("DEBUG: ARIMA forecast generated successfully")
+        
+    except Exception as e:
+        print(f"DEBUG: ARIMA forecast failed: {e}")
+    
+    # 2. Moving average forecast
+    try:
+        ma_forecast, ma_confidence = generate_moving_average_forecast(train_series, test_size + future_steps, ma_window=10)
+        forecasts.append(ma_forecast)
+        weights.append(0.2)
+        print("DEBUG: Moving average forecast generated successfully")
+    except Exception as e:
+        print(f"DEBUG: Moving average forecast failed: {e}")
+    
+    # 3. Exponential smoothing
+    try:
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing
+        es_model = ExponentialSmoothing(train_series, trend='add', seasonal=None)
+        fitted_es = es_model.fit()
+        es_forecast = fitted_es.forecast(steps=test_size + future_steps)
+        forecasts.append(es_forecast.values)
+        weights.append(0.2)
+        print("DEBUG: Exponential smoothing forecast generated successfully")
+    except Exception as e:
+        print(f"DEBUG: Exponential smoothing forecast failed: {e}")
+    
+    # 4. Simple linear trend
+    try:
+        x = np.arange(len(train_series))
+        y = train_series.values
+        slope, intercept = np.polyfit(x, y, 1)
+        
+        future_x = np.arange(len(train_series), len(train_series) + test_size + future_steps)
+        linear_forecast = slope * future_x + intercept
+        forecasts.append(linear_forecast)
+        weights.append(0.1)
+        print("DEBUG: Linear trend forecast generated successfully")
+    except Exception as e:
+        print(f"DEBUG: Linear trend forecast failed: {e}")
+    
+    # 5. Naive forecast (last value)
+    try:
+        naive_forecast = np.full(test_size + future_steps, train_series.iloc[-1])
+        forecasts.append(naive_forecast)
+        weights.append(0.1)
+        print("DEBUG: Naive forecast generated successfully")
+    except Exception as e:
+        print(f"DEBUG: Naive forecast failed: {e}")
+    
+    # Combine forecasts using weighted average
+    if len(forecasts) > 0:
+        # Normalize weights
+        weights = np.array(weights) / sum(weights)
+        
+        # Weighted ensemble
+        ensemble_forecast = np.zeros(test_size + future_steps)
+        for i, (forecast, weight) in enumerate(zip(forecasts, weights)):
+            ensemble_forecast += weight * forecast
+        
+        print(f"DEBUG: Ensemble forecast created with {len(forecasts)} models")
+        print(f"DEBUG: Weights: {weights}")
+        
+        return ensemble_forecast
+    else:
+        print("DEBUG: No forecasts generated, using fallback")
+        return np.full(test_size + future_steps, train_series.iloc[-1])
+
 def generate_forecast_data(symbol: str, model_start_date: str, model_end_date: str, forecast_end_date: str):
     """
-    Generates ARIMA and GARCH forecasts and returns the data in a dict.
+    Generates improved ARIMA and GARCH forecasts with ensemble methods and proper train/test splits.
+    Reserves 20% of data for out-of-sample testing.
     """
     try:
         model_start = pd.to_datetime(model_start_date)
@@ -259,7 +363,7 @@ def generate_forecast_data(symbol: str, model_start_date: str, model_end_date: s
     stock_service = StockService()
     df = stock_service.get_stock_data_df(symbol, start=model_start_date, stop=model_end_date)
 
-    if df is None or df.empty or 'close' not in df.columns or len(df) < 10:
+    if df is None or df.empty or 'close' not in df.columns or len(df) < 100:
         return {"error": f"No sufficient data found for symbol {symbol} to run the model."}
 
     if not isinstance(df.index, pd.DatetimeIndex):
@@ -268,78 +372,130 @@ def generate_forecast_data(symbol: str, model_start_date: str, model_end_date: s
     df = df[['close']].copy()
     close_series = pd.Series(df['close'])
 
-    if len(close_series) < 10 or close_series.nunique() < 2:
+    if len(close_series) < 100 or close_series.nunique() < 2:
         return {"error": "Not enough unique or sufficient data for forecasting."}
 
-    # 4. Forecasting
-    forecast_steps = (forecast_end - model_end).days
-    if forecast_steps <= 0:
-        return {"error": "Forecast end date must be after the model end date."}
-
-    # Use moving average forecast instead of ARIMA
-    print("DEBUG: Using moving average forecast approach...")
-    forecast_values, confidence_intervals = generate_moving_average_forecast(close_series, forecast_steps, ma_window=10)
+    # --- IMPLEMENT TRAIN/TEST SPLIT ---
+    print(f"DEBUG: Total data points: {len(close_series)}")
     
-    # DEBUG: Print forecast details
-    print(f"DEBUG: Moving average forecast steps: {forecast_steps}")
-    print(f"DEBUG: Moving average forecast values: {forecast_values}")
-    print(f"DEBUG: Moving average confidence intervals: {confidence_intervals}")
+    # Reserve 20% of data for testing (out-of-sample)
+    test_size = max(int(0.2 * len(close_series)), 30)  # Minimum 30 days for testing
+    train_size = len(close_series) - test_size
     
-    forecast_index = pd.date_range(start=model_end + pd.Timedelta(days=1), periods=forecast_steps)
+    # Split the data
+    train_series = close_series.iloc[:train_size]
+    test_series = close_series.iloc[train_size:]
+    
+    print(f"DEBUG: Training data: {len(train_series)} points ({train_series.index[0]} to {train_series.index[-1]})")
+    print(f"DEBUG: Test data: {len(test_series)} points ({test_series.index[0]} to {test_series.index[-1]})")
+    
+    # Calculate future forecast steps
+    future_steps = (forecast_end - model_end).days
+    
+    # Generate ensemble forecast
+    print("DEBUG: Generating ensemble forecast...")
+    forecast_values = generate_ensemble_forecast(train_series, test_size, future_steps)
+    
+    # --- OUT-OF-SAMPLE EVALUATION ---
+    print("DEBUG: Evaluating model on test data...")
+    
+    # Get predictions for test period
+    test_forecast = forecast_values[:test_size]
+    test_actual = test_series.values
+    
+    # Calculate out-of-sample metrics
+    from sklearn.metrics import mean_squared_error, mean_absolute_error
+    mse = mean_squared_error(test_actual, test_forecast)
+    mae = mean_absolute_error(test_actual, test_forecast)
+    rmse = np.sqrt(mse)
+    
+    # Calculate directional accuracy
+    actual_direction = np.diff(test_actual) > 0
+    predicted_direction = np.diff(test_forecast) > 0
+    directional_accuracy = np.mean(actual_direction == predicted_direction)
+    
+    print(f"DEBUG: Out-of-sample MSE: {mse:.4f}")
+    print(f"DEBUG: Out-of-sample MAE: {mae:.4f}")
+    print(f"DEBUG: Out-of-sample RMSE: {rmse:.4f}")
+    print(f"DEBUG: Directional accuracy: {directional_accuracy:.4f}")
+    
+    # Get future forecasts (after test period)
+    future_forecast = forecast_values[test_size:]
+    
+    # Create confidence intervals for future forecasts
+    # Use historical volatility to estimate uncertainty
+    historical_volatility = train_series.pct_change().std()
+    confidence_interval = 1.96 * historical_volatility * np.abs(future_forecast)
+    
+    future_confidence = np.column_stack([
+        future_forecast - confidence_interval,
+        future_forecast + confidence_interval
+    ])
+    
+    # Create forecast index for future predictions
+    forecast_index = pd.date_range(start=model_end + pd.Timedelta(days=1), periods=len(future_forecast))
+    
+    # Combine historical data with forecasts
+    historical_df = df.copy()
+    
+    # Ensure timezone consistency - make all indices timezone-naive
+    if historical_df.index.tz is not None:
+        historical_df.index = historical_df.index.tz_localize(None)
+    if forecast_index.tz is not None:
+        forecast_index = forecast_index.tz_localize(None)
+    
     forecast_df = pd.DataFrame({
-        'forecast': forecast_values,
-        'conf_int_lower': confidence_intervals[:, 0],
-        'conf_int_upper': confidence_intervals[:, 1]
+        'forecast': future_forecast,
+        'conf_int_lower': future_confidence[:, 0],
+        'conf_int_upper': future_confidence[:, 1]
     }, index=forecast_index)
     
-    # DEBUG: Print the forecast DataFrame
-    print(f"DEBUG: Forecast DataFrame head: {forecast_df.head()}")
-    print(f"DEBUG: Forecast DataFrame tail: {forecast_df.tail()}")
-
-    # For GARCH, we'll use a simple volatility model based on historical volatility
-    historical_volatility = close_series.pct_change().rolling(window=20).std().dropna()
-    forecast_volatility = np.full(forecast_steps, historical_volatility.iloc[-1])
+    # For GARCH volatility, use historical volatility from training data
+    train_returns = train_series.pct_change().dropna()
+    historical_volatility_series = train_returns.rolling(window=20).std().dropna()
     
-    # Pad historical volatility for alignment
-    historical_vol_array = np.array(historical_volatility.values)
-    padded_historical_volatility = np.insert(historical_vol_array, 0, np.nan)
+    # Forecast volatility using GARCH-like approach
+    # Use the last known volatility and add some trend
+    last_vol = historical_volatility_series.iloc[-1]
+    forecast_volatility = np.full(len(future_forecast), last_vol)
     
-    if isinstance(df.index, pd.DatetimeIndex):
-      df.index = df.index.tz_localize(None)
-    combined_df = pd.concat([df, forecast_df], axis=1)
-
-    garch_dates_list = (pd.to_datetime(df.index).strftime('%Y-%m-%d').tolist() + forecast_index.strftime('%Y-%m-%d').tolist())
-    garch_volatility_list = np.concatenate([padded_historical_volatility, forecast_volatility]).tolist()
-
-    # Pad garch_dates_list and garch_volatility_list if needed, but avoid None for datetime conversion
-    if len(garch_volatility_list) > len(garch_dates_list):
-        # Use the first date minus one day as a dummy date
-        first_date = pd.to_datetime(garch_dates_list[0])
-        dummy_date = (first_date - pd.Timedelta(days=1)).strftime('%Y-%m-%d')
-        garch_dates_list = [dummy_date] + garch_dates_list
-        garch_volatility_list = [np.nan] + garch_volatility_list
-
-    # Debug prints to verify lengths and first few elements
-    print(f"DEBUG INFO: After padding, Length of garch_dates list: {len(garch_dates_list)}")
-    print(f"DEBUG INFO: After padding, Length of garch_volatility list: {len(garch_volatility_list)}")
-    print(f"DEBUG INFO: First 5 garch_dates: {garch_dates_list[:5]}")
-    print(f"DEBUG INFO: First 5 garch_volatility: {garch_volatility_list[:5]}")
-
-    # Defensive: ensure lists are not None
-    valid_garch_dates = [d for d in garch_dates_list if isinstance(d, str)] if garch_dates_list else []
-    valid_all_dates = [d for d in pd.to_datetime(combined_df.index).strftime('%Y-%m-%d').tolist() if isinstance(d, str)] if combined_df is not None else []
-    garch_volatility_list = garch_volatility_list if garch_volatility_list else []
-
+    # Add slight decay to volatility forecast
+    for i in range(1, len(forecast_volatility)):
+        forecast_volatility[i] = forecast_volatility[i-1] * 0.99  # Slight decay
+    
+    # Create volatility data with timezone-naive dates
+    vol_dates = historical_df.index.tolist() + forecast_index.tolist()
+    vol_values = historical_volatility_series.tolist() + forecast_volatility.tolist()
+    
+    # Pad if needed
+    if len(vol_values) < len(vol_dates):
+        vol_values = [np.nan] * (len(vol_dates) - len(vol_values)) + vol_values
+    
+    # Combine data for output
+    combined_df = pd.concat([historical_df, forecast_df], axis=1)
+    
     result = {
-        "dates": valid_all_dates,
-        "actual_close": combined_df['close'].tolist() if combined_df is not None else [],
-        "forecast": combined_df['forecast'].tolist() if combined_df is not None else [],
-        "conf_int_lower": combined_df['conf_int_lower'].tolist() if combined_df is not None else [],
-        "conf_int_upper": combined_df['conf_int_upper'].tolist() if combined_df is not None else [],
-        "garch_dates": valid_garch_dates,
-        "garch_volatility": garch_volatility_list,
-        "forecast_start_date": model_end.strftime('%Y-%m-%d')
+        "dates": pd.to_datetime(combined_df.index).strftime('%Y-%m-%d').tolist(),
+        "actual_close": combined_df['close'].tolist(),
+        "forecast": combined_df['forecast'].tolist(),
+        "conf_int_lower": combined_df['conf_int_lower'].tolist(),
+        "conf_int_upper": combined_df['conf_int_upper'].tolist(),
+        "garch_dates": pd.to_datetime(vol_dates).strftime('%Y-%m-%d').tolist(),
+        "garch_volatility": vol_values,
+        "forecast_start_date": model_end.strftime('%Y-%m-%d'),
+        "out_of_sample_metrics": {
+            "mse": mse,
+            "mae": mae,
+            "rmse": rmse,
+            "directional_accuracy": directional_accuracy,
+            "test_period_start": test_series.index[0].strftime('%Y-%m-%d'),
+            "test_period_end": test_series.index[-1].strftime('%Y-%m-%d')
+        }
     }
+    
+    print(f"DEBUG: Generated ensemble forecast with {len(future_forecast)} future steps")
+    print(f"DEBUG: Out-of-sample evaluation completed")
+    
     return nan_to_none(result)
 
 def generate_forecast_graph(symbol: str, model_start_date: str, model_end_date: str, forecast_end_date: str):

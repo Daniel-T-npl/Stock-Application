@@ -1,10 +1,20 @@
+import os
+import sys
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'stocksite.settings')
+import django
+django.setup()
+
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import logging
 from datetime import datetime
 from stocks.influx_client import InfluxDBHandler
-import os
 
 # Set up logging
 logging.basicConfig(
@@ -68,10 +78,6 @@ def save_to_csv(stock_data, filename="stock_data.csv"):
     except Exception as e:
         logger.error(f"Error saving to CSV: {str(e)}")
         return None
-
-
-
-
 
 def save_to_influxdb(stock_data, date=None):
     """Save stock data to InfluxDB"""

@@ -1,10 +1,10 @@
 from django.shortcuts import render
 from django.http import JsonResponse
-from analysis.influx_client import influx_client, get_all_symbols
+from analysis.influx_client import influx_client, get_all_symbols, InfluxDBHandler
+from analysis.stock_service import StockService
 import os
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_GET
-from analysis.stock_service import StockService
 import json
 from datetime import datetime, timedelta
 import logging
@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 from analysis.analysis_service import AnalysisService
 from analysis.statistical_service import generate_forecast_graph, generate_forecast_data, generate_and_save_forecast_image
+from analysis.indicators import ema, macd, stochastic_oscillator, donchian_channel, anchored_vwap
 
 
 # Set up logging
@@ -498,3 +499,52 @@ def api_arima_data(request):
     except Exception as e:
         logger.error(f"Error generating ARIMA data for {symbol}: {e}", exc_info=True)
         return JsonResponse({'error': 'An internal error occurred.'}, status=500)
+
+def get_ohlcv_and_indicators(request):
+    symbol = request.GET.get('symbol', 'NLICL')
+    start = request.GET.get('start')
+    end = request.GET.get('end')
+    handler = InfluxDBHandler()
+    query_api = handler.client.get_query_api()
+    bucket = handler.client.get_bucket()
+    org = handler.client.get_org()
+    query = f'''
+    from(bucket: "{bucket}")
+      |> range(start: -2y)
+      |> filter(fn: (r) => r["_measurement"] == "stock_data")
+      |> filter(fn: (r) => r["symbol"] == "{symbol}")
+      |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+      |> sort(columns: ["_time"])
+    '''
+    result = query_api.query(org=org, query=query)
+    records = [
+        {
+            'date': record.values['_time'].strftime('%Y-%m-%d'),
+            **{k: record.values.get(k) for k in ['open', 'high', 'low', 'close', 'volume', 'turnover']}
+        }
+        for table in result for record in table.records
+    ]
+    df = pd.DataFrame(records)
+    if not df.empty:
+        df = df.sort_values('date')
+        df = df.drop_duplicates('date')
+        df = df.reset_index(drop=True)
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        # Add indicators
+        df['ema_20'] = ema(df['close'], 20)
+        macd_df = macd(df['close'])
+        df = pd.concat([df, macd_df], axis=1)
+        stoch_df = stochastic_oscillator(df)
+        df = pd.concat([df, stoch_df], axis=1)
+        donchian_df = donchian_channel(df)
+        df = pd.concat([df, donchian_df], axis=1)
+        df['anchored_vwap'] = anchored_vwap(df)
+        # Volume profile is not time series, so not included in main df
+    else:
+        return JsonResponse({'error': 'No data found'}, status=404)
+    data = df.to_dict(orient='records')
+    return JsonResponse({'data': data})
+
+def interactive_dashboard(request):
+    return render(request, 'stocks/interactive_dashboard.html')
