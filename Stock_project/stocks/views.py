@@ -501,16 +501,33 @@ def api_arima_data(request):
         return JsonResponse({'error': 'An internal error occurred.'}, status=500)
 
 def get_ohlcv_and_indicators(request):
+    import json as _json
     symbol = request.GET.get('symbol', 'NLICL')
     start = request.GET.get('start')
     end = request.GET.get('end')
+    indicators = request.GET.get('indicators', '').split(',')
+    modifiers = request.GET.get('modifiers')
+    if modifiers:
+        try:
+            modifiers = _json.loads(modifiers)
+        except Exception:
+            modifiers = {}
+    else:
+        modifiers = {}
     handler = InfluxDBHandler()
     query_api = handler.client.get_query_api()
     bucket = handler.client.get_bucket()
     org = handler.client.get_org()
+    # Use selected date range if provided
+    if start and end:
+        start_iso = f"{start}T00:00:00Z"
+        end_iso = f"{end}T23:59:59Z"
+        range_clause = f'|> range(start: time(v: "{start_iso}"), stop: time(v: "{end_iso}"))'
+    else:
+        range_clause = '|> range(start: -2y)'
     query = f'''
     from(bucket: "{bucket}")
-      |> range(start: -2y)
+      {range_clause}
       |> filter(fn: (r) => r["_measurement"] == "stock_data")
       |> filter(fn: (r) => r["symbol"] == "{symbol}")
       |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
@@ -525,26 +542,107 @@ def get_ohlcv_and_indicators(request):
         for table in result for record in table.records
     ]
     df = pd.DataFrame(records)
+    try:
+        logger.info(f"Loaded DataFrame shape: {df.shape}, columns: {list(df.columns)}")
+    except Exception as e:
+        logger.error(f"Error logging DataFrame shape/columns: {e}")
     if not df.empty:
         df = df.sort_values('date')
         df = df.drop_duplicates('date')
         df = df.reset_index(drop=True)
         for col in ['open', 'high', 'low', 'close', 'volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-        # Add indicators
-        df['ema_20'] = ema(df['close'], 20)
-        macd_df = macd(df['close'])
-        df = pd.concat([df, macd_df], axis=1)
-        stoch_df = stochastic_oscillator(df)
-        df = pd.concat([df, stoch_df], axis=1)
-        donchian_df = donchian_channel(df)
-        df = pd.concat([df, donchian_df], axis=1)
-        df['anchored_vwap'] = anchored_vwap(df)
-        # Volume profile is not time series, so not included in main df
+        # Add indicators robustly
+        try:
+            if 'ema_20' in indicators and 'close' in df:
+                ma = modifiers.get('ema_20', {}).get('ma', 20)
+                df['ema_20'] = ema(df['close'], ma)
+        except Exception as e:
+            logger.error(f"EMA error: {e}")
+        try:
+            if 'macd' in indicators and 'close' in df:
+                macd_df = macd(df['close'])
+                df = pd.concat([df, macd_df], axis=1)
+        except Exception as e:
+            logger.error(f"MACD error: {e}")
+        try:
+            if 'stoch' in indicators and all(x in df for x in ['low', 'high', 'close']):
+                stoch_df = stochastic_oscillator(df)
+                df = pd.concat([df, stoch_df], axis=1)
+        except Exception as e:
+            logger.error(f"Stochastic Oscillator error: {e}")
+        try:
+            if 'donchian' in indicators and all(x in df for x in ['low', 'high']):
+                donchian_df = donchian_channel(df)
+                df = pd.concat([df, donchian_df], axis=1)
+        except Exception as e:
+            logger.error(f"Donchian Channel error: {e}")
+        try:
+            if 'anchored_vwap' in indicators and all(x in df for x in ['high', 'low', 'close', 'volume']):
+                anchor_date = modifiers.get('anchored_vwap', {}).get('start_date')
+                anchor_idx = 0
+                if anchor_date and anchor_date in list(df['date']):
+                    anchor_idx = list(df['date']).index(anchor_date)
+                df['anchored_vwap'] = anchored_vwap(df, anchor_idx=anchor_idx)
+        except Exception as e:
+            logger.error(f"Anchored VWAP error: {e}")
+        try:
+            if 'bollinger' in indicators and 'close' in df:
+                from analysis.analysis_service import AnalysisService
+                ma = modifiers.get('bollinger', {}).get('ma', 20)
+                stddev = modifiers.get('bollinger', {}).get('stddev', 2)
+                df = AnalysisService.calculate_bollinger_bands(df, window=ma, column='close', stddev=stddev)
+        except Exception as e:
+            logger.error(f"Bollinger Bands error: {e}")
+        try:
+            if 'rsi' in indicators and 'close' in df:
+                from analysis.indicators import rsi
+                period = modifiers.get('rsi', {}).get('period', 14)
+                df['rsi_14'] = rsi(df['close'], period)
+                # Overbought/oversold are for frontend display only
+        except Exception as e:
+            logger.error(f"RSI error: {e}")
+        try:
+            if 'ichimoku' in indicators and all(x in df for x in ['high', 'low', 'close']):
+                from analysis.indicators import ichimoku_cloud
+                ichimoku = ichimoku_cloud(df)
+                # Only add senkou_span_a and senkou_span_b
+                df['senkou_span_a'] = ichimoku['senkou_span_a']
+                df['senkou_span_b'] = ichimoku['senkou_span_b']
+        except Exception as e:
+            logger.error(f"Ichimoku error: {e}")
+        try:
+            if 'fibonacci' in indicators and all(x in df for x in ['high', 'low']):
+                from analysis.indicators import fibonacci_retracement
+                fib = fibonacci_retracement(df)
+                for col in fib.columns:
+                    df[col] = fib[col]
+        except Exception as e:
+            logger.error(f"Fibonacci error: {e}")
+        try:
+            if 'volume_profile' in indicators and all(x in df for x in ['close', 'low', 'high', 'volume']):
+                from analysis.indicators import volume_profile
+                vol_profile = volume_profile(df)
+                if not vol_profile.empty and 'price_bin' in vol_profile.columns:
+                    vol_profile['price_bin'] = vol_profile['price_bin'].apply(lambda x: str(x) if not pd.isnull(x) else "")
+            else:
+                vol_profile = pd.DataFrame()
+        except Exception as e:
+            logger.error(f"Volume Profile error: {e}")
+            vol_profile = pd.DataFrame()
     else:
+        vol_profile = pd.DataFrame()
         return JsonResponse({'error': 'No data found'}, status=404)
-    data = df.to_dict(orient='records')
-    return JsonResponse({'data': data})
+    try:
+        df = df.replace({np.nan: None})
+        if not vol_profile.empty:
+            vol_profile = vol_profile.replace({np.nan: None})
+        data = df.to_dict(orient='records')
+        return JsonResponse({'data': data, 'volume_profile': vol_profile.to_dict(orient='records') if not vol_profile.empty else []})
+    except Exception as e:
+        logger.error(f"Top-level error in get_ohlcv_and_indicators: {e}")
+        return JsonResponse({'error': str(e)}, status=500)
 
 def interactive_dashboard(request):
-    return render(request, 'stocks/interactive_dashboard.html')
+    all_symbols = get_all_symbols()
+    return render(request, 'stocks/interactive_dashboard.html', {'all_symbols': all_symbols})

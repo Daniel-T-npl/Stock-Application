@@ -7,8 +7,12 @@
       <h2 class="card-title mb-4">Interactive Stock Dashboard</h2>
       <div class="row mb-3 align-items-end">
         <div class="col-md-3">
-          <label for="symbolSelect" class="form-label">Symbol:</label>
-          <input type="text" id="symbolSelect" class="form-control" value="NLICL">
+          <label for="symbolSelect" class="form-label">Stock:</label>
+          <select id="symbolSelect" class="form-select" style="width:100%">
+            {% for s in all_symbols %}
+            <option value="{{ s }}" {% if s == 'NLICL' %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
         </div>
         <div class="col-md-4">
           <label for="dateRange" class="form-label">Date Range:</label>
@@ -19,28 +23,83 @@
         </div>
         <div class="col-md-3">
           <label class="form-label">Indicators:</label>
-          <div class="dropdown">
-            <button class="btn btn-secondary dropdown-toggle w-100" type="button" id="indicatorDropdownBtn" data-bs-toggle="dropdown" aria-expanded="false">
-              Select Indicators
-            </button>
-            <ul class="dropdown-menu w-100" aria-labelledby="indicatorDropdownBtn" id="indicatorDropdownMenu">
-              <li><label class="dropdown-item"><input type="checkbox" class="indicator-checkbox" value="ema_20"> EMA (20)</label></li>
-              <li><label class="dropdown-item"><input type="checkbox" class="indicator-checkbox" value="macd"> MACD</label></li>
-              <li><label class="dropdown-item"><input type="checkbox" class="indicator-checkbox" value="stoch"> Stochastic Oscillator</label></li>
-              <li><label class="dropdown-item"><input type="checkbox" class="indicator-checkbox" value="donchian"> Donchian Channel</label></li>
-              <li><label class="dropdown-item"><input type="checkbox" class="indicator-checkbox" value="anchored_vwap"> Anchored VWAP</label></li>
-            </ul>
-          </div>
+          <select id="indicatorSelect" class="form-select" multiple size="10" style="width:100%">
+            <option value="ema_20">EMA</option>
+            <option value="macd">MACD</option>
+            <option value="stoch">Stochastic Oscillator</option>
+            <option value="donchian">Donchian Channel</option>
+            <option value="anchored_vwap">Anchored VWAP</option>
+            <option value="bollinger">Bollinger Bands</option>
+            <option value="rsi">RSI</option>
+            <option value="ichimoku">Ichimoku Cloud</option>
+            <option value="fibonacci">Fibonacci Retracement</option>
+            <option value="volume_profile">Volume Profile</option>
+          </select>
         </div>
         <div class="col-md-2 d-flex align-items-end">
           <button class="btn btn-primary w-100" id="updateChart">Update</button>
         </div>
       </div>
+      <!-- Indicator Modifiers -->
+      <div id="indicatorModifiers" class="mb-3">
+        <!-- Bollinger Bands -->
+        <div id="bollinger_modifiers" class="row mb-2" style="display:none;">
+          <div class="col-auto"><label>MA Window:</label></div>
+          <div class="col-auto"><input type="number" id="bollinger_ma" class="form-control" value="20" min="1" max="100"></div>
+          <div class="col-auto"><label>Std Dev:</label></div>
+          <div class="col-auto"><input type="number" id="bollinger_stddev" class="form-control" value="2" min="0.1" step="0.1"></div>
+        </div>
+        <!-- RSI -->
+        <div id="rsi_modifiers" class="row mb-2" style="display:none;">
+          <div class="col-auto"><label>RSI Period:</label></div>
+          <div class="col-auto"><input type="number" id="rsi_period" class="form-control" value="14" min="1" max="100"></div>
+          <div class="col-auto"><label>Overbought:</label></div>
+          <div class="col-auto"><input type="number" id="rsi_overbought" class="form-control" value="70" min="1" max="100"></div>
+          <div class="col-auto"><label>Oversold:</label></div>
+          <div class="col-auto"><input type="number" id="rsi_oversold" class="form-control" value="30" min="1" max="100"></div>
+        </div>
+        <!-- EMA -->
+        <div id="ema_modifiers" class="row mb-2" style="display:none;">
+          <div class="col-auto"><label>MA Window:</label></div>
+          <div class="col-auto"><input type="number" id="ema_ma" class="form-control" value="20" min="1" max="100"></div>
+        </div>
+        <!-- Anchored VWAP -->
+        <div id="anchored_vwap_modifiers" class="row mb-2" style="display:none;">
+          <div class="col-auto"><label>Start Date:</label></div>
+          <div class="col-auto"><input type="date" id="anchored_vwap_start" class="form-control" value=""></div>
+        </div>
+        <!-- Fibonacci -->
+        <div id="fibonacci_modifiers" class="row mb-2" style="display:none;">
+          <div class="col-auto"><label>0% Position:</label></div>
+          <div class="col-auto"><input type="text" id="fib_pos0" class="form-control" value=""></div>
+          <div class="col-auto"><label>100% Position:</label></div>
+          <div class="col-auto"><input type="text" id="fib_pos1" class="form-control" value=""></div>
+        </div>
+        <!-- Add more as needed -->
+      </div>
+      <div id="volumeProfileWarning" class="alert alert-warning" style="display:none;">No volume profile data available for this range.</div>
       <div id="plotly-chart" style="height:600px;"></div>
     </div>
   </div>
 </div>
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="{% static 'stocks/js/interactive_dashboard.js' %}"></script>
+{% block scripts %}
+<script>
+  // Set default date range to last 6 months
+  document.addEventListener('DOMContentLoaded', function() {
+    const endDateInput = document.getElementById('endDate');
+    const startDateInput = document.getElementById('startDate');
+    const today = new Date();
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(today.getMonth() - 6);
+    endDateInput.value = today.toISOString().slice(0, 10);
+    startDateInput.value = sixMonthsAgo.toISOString().slice(0, 10);
+    // Initialize Select2
+    $('#symbolSelect').select2({placeholder: 'Select a symbol', allowClear: false, width: '100%'});
+    $('#indicatorSelect').select2({placeholder: 'Select indicators', width: '100%'});
+  });
+</script>
+{% endblock %}
 {% endblock %} 

@@ -449,7 +449,7 @@ def generate_forecast_data(symbol: str, model_start_date: str, model_end_date: s
         'conf_int_lower': future_confidence[:, 0],
         'conf_int_upper': future_confidence[:, 1]
     }, index=forecast_index)
-    
+
     # For GARCH volatility, use historical volatility from training data
     train_returns = train_series.pct_change().dropna()
     historical_volatility_series = train_returns.rolling(window=20).std().dropna()
@@ -473,7 +473,7 @@ def generate_forecast_data(symbol: str, model_start_date: str, model_end_date: s
     
     # Combine data for output
     combined_df = pd.concat([historical_df, forecast_df], axis=1)
-    
+
     result = {
         "dates": pd.to_datetime(combined_df.index).strftime('%Y-%m-%d').tolist(),
         "actual_close": combined_df['close'].tolist(),
@@ -490,7 +490,7 @@ def generate_forecast_data(symbol: str, model_start_date: str, model_end_date: s
             "directional_accuracy": directional_accuracy,
             "test_period_start": test_series.index[0].strftime('%Y-%m-%d'),
             "test_period_end": test_series.index[-1].strftime('%Y-%m-%d')
-        }
+    }
     }
     
     print(f"DEBUG: Generated ensemble forecast with {len(future_forecast)} future steps")
