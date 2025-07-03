@@ -1,0 +1,26 @@
+﻿
+
+StatusCode        : 200
+StatusDescription : OK
+Content           : {"data": [{"date": "2023-07-04", "open": 663.0, "high": 663.0, "low": 646.1, 
+                    "close": 648.0, "volume": 25483.0, "turnover": 16588598.6, "price_bin": "(627.467, 
+                    648.7]"}, {"date": "2023-07-05", "open":...
+RawContent        : HTTP/1.1 200 OK
+                    X-Frame-Options: DENY
+                    X-Content-Type-Options: nosniff
+                    Referrer-Policy: same-origin
+                    Cross-Origin-Opener-Policy: same-origin
+                    Content-Length: 74219
+                    Content-Type: application/json
+                    D...
+Forms             : {}
+Headers           : {[X-Frame-Options, DENY], [X-Content-Type-Options, nosniff], [Referrer-Policy, 
+                    same-origin], [Cross-Origin-Opener-Policy, same-origin]...}
+Images            : {}
+InputFields       : {}
+Links             : {}
+ParsedHtml        : mshtml.HTMLDocumentClass
+RawContentLength  : 74219
+
+
+

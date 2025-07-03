@@ -20,5 +20,6 @@ urlpatterns = [
     path('api/bollinger/', views.api_bollinger_data, name='api_bollinger_data'),
     path('api/arima/', views.api_arima_data, name='api_arima_data'),
     path('api/ohlcv_indicators/', views.get_ohlcv_and_indicators, name='ohlcv_indicators_api'),
+    path('api/indicator_choices/', views.api_indicator_choices, name='indicator_choices_api'),
     path('dashboard/', views.interactive_dashboard, name='interactive_dashboard'),
 ] 

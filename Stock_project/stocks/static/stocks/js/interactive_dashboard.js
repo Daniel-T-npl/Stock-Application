@@ -59,11 +59,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     type: 'candlestick',
                     name: 'OHLC',
                     increasing: {
-                        line: {color: '#00b894', width: 0}, // green wicks, no border
+                        line: {color: '#00b894', width: 2}, // green wicks, visible
                         fillcolor: '#00b894' // green body
                     },
                     decreasing: {
-                        line: {color: '#d63031', width: 0}, // red wicks, no border
+                        line: {color: '#d63031', width: 2}, // red wicks, visible
                         fillcolor: '#d63031' // red body
                     },
                     whiskerwidth: 0.5
@@ -196,6 +196,52 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     });
                 }
+                // Keltner Channels (main chart)
+                if (indicators.includes('keltner')) {
+                    const kc_middle = data.map(row => row.kc_middle);
+                    const kc_upper = data.map(row => row.kc_upper);
+                    const kc_lower = data.map(row => row.kc_lower);
+                    mainTraces.push({
+                        x: dates,
+                        y: kc_middle,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Keltner Middle',
+                        line: {color: '#00b894', dash: 'dot'},
+                        yaxis: 'y1'
+                    });
+                    mainTraces.push({
+                        x: dates,
+                        y: kc_upper,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Keltner Upper',
+                        line: {color: '#fdcb6e', dash: 'dot'},
+                        yaxis: 'y1'
+                    });
+                    mainTraces.push({
+                        x: dates,
+                        y: kc_lower,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Keltner Lower',
+                        line: {color: '#e17055', dash: 'dot'},
+                        yaxis: 'y1'
+                    });
+                }
+                // Parabolic SAR (main chart, as dots)
+                if (indicators.includes('parabolic_sar')) {
+                    const psar = data.map(row => row.parabolic_sar);
+                    mainTraces.push({
+                        x: dates,
+                        y: psar,
+                        type: 'scatter',
+                        mode: 'markers',
+                        name: 'Parabolic SAR',
+                        marker: {color: '#6c5ce7', size: 6, symbol: 'circle-open'},
+                        yaxis: 'y1'
+                    });
+                }
                 // Prepare subplots for each indicator
                 function addSubplot(traces, title, height=0.2) {
                     if (traces.length > 0) {
@@ -302,37 +348,199 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 }
                 addSubplot(rsiTraces, 'RSI');
+                // ADX (subplot)
+                let adxTraces = [];
+                if (indicators.includes('adx')) {
+                    const adx = data.map(row => row.adx);
+                    adxTraces.push({
+                        x: dates,
+                        y: adx,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'ADX',
+                        line: {color: '#00b894'},
+                        yaxis: `y${subplotCount+1}`
+                    });
+                    // Add 25/20 reference lines
+                    adxTraces.push({
+                        x: [dates[0], dates[dates.length-1]],
+                        y: [25, 25],
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Strong Trend (25)',
+                        line: {color: '#fdcb6e', dash: 'dash'},
+                        yaxis: `y${subplotCount+1}`,
+                        showlegend: true
+                    });
+                    adxTraces.push({
+                        x: [dates[0], dates[dates.length-1]],
+                        y: [20, 20],
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Range Bound (20)',
+                        line: {color: '#636e72', dash: 'dot'},
+                        yaxis: `y${subplotCount+1}`,
+                        showlegend: true
+                    });
+                }
+                addSubplot(adxTraces, 'ADX');
+                // OBV (subplot)
+                let obvTraces = [];
+                if (indicators.includes('obv')) {
+                    const obv = data.map(row => row.obv);
+                    obvTraces.push({
+                        x: dates,
+                        y: obv,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'OBV',
+                        line: {color: '#0984e3'},
+                        yaxis: `y${subplotCount+1}`
+                    });
+                }
+                addSubplot(obvTraces, 'OBV');
+                // VPT (subplot)
+                let vptTraces = [];
+                if (indicators.includes('vpt')) {
+                    const vpt = data.map(row => row.vpt);
+                    vptTraces.push({
+                        x: dates,
+                        y: vpt,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'VPT',
+                        line: {color: '#fdcb6e'},
+                        yaxis: `y${subplotCount+1}`
+                    });
+                }
+                addSubplot(vptTraces, 'VPT');
+                // CMF (subplot, fill region green above 0, red below 0)
+                let cmfTraces = [];
+                if (indicators.includes('cmf')) {
+                    const cmf = data.map(row => row.cmf);
+                    // Split into positive and negative for fill color
+                    let cmf_pos = cmf.map(v => v > 0 ? v : 0);
+                    let cmf_neg = cmf.map(v => v < 0 ? v : 0);
+                    cmfTraces.push({
+                        x: dates,
+                        y: cmf_pos,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'CMF+',
+                        line: {color: '#00b894'},
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(0,184,148,0.3)',
+                        yaxis: `y${subplotCount+1}`
+                    });
+                    cmfTraces.push({
+                        x: dates,
+                        y: cmf_neg,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'CMF-',
+                        line: {color: '#d63031'},
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(214,48,49,0.3)',
+                        yaxis: `y${subplotCount+1}`
+                    });
+                    // Add a zero line for reference
+                    cmfTraces.push({
+                        x: [dates[0], dates[dates.length-1]],
+                        y: [0, 0],
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Zero',
+                        line: {color: '#fff', dash: 'dot'},
+                        yaxis: `y${subplotCount+1}`,
+                        showlegend: false
+                    });
+                }
+                addSubplot(cmfTraces, 'CMF');
+                // ATR (subplot)
+                let atrTraces = [];
+                if (indicators.includes('atr')) {
+                    const atr = data.map(row => row.atr);
+                    atrTraces.push({
+                        x: dates,
+                        y: atr,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'ATR',
+                        line: {color: '#6c5ce7'},
+                        yaxis: `y${subplotCount+1}`
+                    });
+                }
+                addSubplot(atrTraces, 'ATR');
+                // Fractals (main chart, show as markers for highs/lows)
+                if (indicators.includes('fractals')) {
+                    const fractal_high = data.map(row => row.fractal_high);
+                    const fractal_low = data.map(row => row.fractal_low);
+                    mainTraces.push({
+                        x: dates,
+                        y: fractal_high,
+                        type: 'scatter',
+                        mode: 'markers',
+                        name: 'Fractal High',
+                        marker: {color: '#e17055', size: 8, symbol: 'triangle-up'},
+                        yaxis: 'y1'
+                    });
+                    mainTraces.push({
+                        x: dates,
+                        y: fractal_low,
+                        type: 'scatter',
+                        mode: 'markers',
+                        name: 'Fractal Low',
+                        marker: {color: '#00b894', size: 8, symbol: 'triangle-down'},
+                        yaxis: 'y1'
+                    });
+                }
                 // Volume Profile (as horizontal bar chart in its own subplot)
                 let vpTraces = [];
+                console.log('DEBUG: json.volume_profile =', json.volume_profile);
                 if (indicators.includes('volume_profile') && json.volume_profile && json.volume_profile.length > 0) {
                     const vp = json.volume_profile;
+                    console.log('Raw Volume Profile:', vp);
                     let priceBins = vp.map(row => {
-                        const match = row.price_bin.match(/\[(.*),(.*)\]/);
+                        if (!row.price_bin) return null;
+                        const match = row.price_bin.match(/[\[(](.*),\s*(.*)[\])]/);
                         if (match) {
-                            return (parseFloat(match[1]) + parseFloat(match[2])) / 2;
+                            const low = parseFloat(match[1]);
+                            const high = parseFloat(match[2]);
+                            if (low === high) return low;
+                            return (low + high) / 2;
                         }
                         return null;
                     });
-                    // Sort by price ascending for y-axis
-                    let sorted = vp.map((row, i) => ({...row, price: priceBins[i]})).sort((a, b) => a.price - b.price);
+                    let filtered = vp.map((row, i) => ({...row, price: priceBins[i]})).filter(row => row.price !== null && !isNaN(row.price));
+                    if (filtered.length === 0 && vp.length === 1 && vp[0].price_bin) {
+                        const match = vp[0].price_bin.match(/\[(.*),(.*)\]/);
+                        if (match) {
+                            const low = parseFloat(match[1]);
+                            const high = parseFloat(match[2]);
+                            const center = (low + high) / 2;
+                            filtered = [{price: center, volume: vp[0].volume}];
+                        }
+                    }
+                    if (filtered.length === 0) {
+                        console.warn('No valid price bins for volume profile:', vp);
+                    }
+                    let sorted = filtered.sort((a, b) => a.price - b.price);
                     priceBins = sorted.map(row => row.price);
                     const volumes = sorted.map(row => row.volume);
-                    const maxVol = Math.max(...volumes);
-                    const colors = volumes.map(v => `rgba(99,110,114,${0.2 + 0.8 * (v / maxVol)})`);
                     vpTraces.push({
                         x: volumes,
                         y: priceBins,
                         type: 'bar',
                         orientation: 'h',
                         name: 'Volume Profile',
-                        marker: {color: colors},
+                        marker: {color: 'rgba(95,123,232,0.7)'},
                         opacity: 0.7,
-                        width: 2,
+                        width: 8,
                         showlegend: false,
                         yaxis: `y${subplotCount+1}`
                     });
                 }
-                addSubplot(vpTraces, 'Volume Profile', 0.15);
+                addSubplot(vpTraces, 'Volume Profile', 0.25);
                 // Combine all traces for subplots
                 let allTraces = [...mainTraces];
                 let layout = {
@@ -341,7 +549,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     paper_bgcolor: '#18191a',
                     font: {color: '#fff'},
                     grid: {rows: subplotSpecs.length, columns: 1, roworder: 'top to bottom'},
-                    height: 600 + 200 * (subplotSpecs.length - 1),
+                    height: 900 + 200 * (subplotSpecs.length - 1),
                     margin: {t: 50, b: 80},
                     legend: {orientation: 'h', y: -0.2},
                     shapes: Array.from({length: subplotSpecs.length}, (_, i) => ({
@@ -361,6 +569,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Set up axes for each subplot
                 layout['xaxis'] = {title: '', rangeslider: {visible: false}, color: '#fff', gridcolor: '#333', domain: [0, 1], anchor: 'y1', showticklabels: false};
                 layout['yaxis'] = {title: 'Price', color: '#fff', gridcolor: '#333', domain: [1 - rowHeights[0], 1]};
+                // Show date labels if only the candlestick is present (no indicators, only one subplot)
+                if (indicators.length === 0 && subplotSpecs.length === 1) {
+                    layout['xaxis'].showticklabels = true;
+                    layout['xaxis'].title = 'Date';
+                }
                 for (let i = 1, yStart = 1 - rowHeights[0]; i < subplotSpecs.length; i++) {
                     const yEnd = yStart;
                     yStart -= rowHeights[i];
@@ -446,4 +659,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('startDate').addEventListener('change', function() {
         document.getElementById('anchored_vwap_start').value = this.value;
     });
+    // Also update chart when Anchored VWAP start date changes
+    document.getElementById('anchored_vwap_start').addEventListener('change', fetchAndPlot);
 }); 

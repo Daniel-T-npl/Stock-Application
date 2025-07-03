@@ -24,16 +24,7 @@
         <div class="col-md-3">
           <label class="form-label">Indicators:</label>
           <select id="indicatorSelect" class="form-select" multiple size="10" style="width:100%">
-            <option value="ema_20">EMA</option>
-            <option value="macd">MACD</option>
-            <option value="stoch">Stochastic Oscillator</option>
-            <option value="donchian">Donchian Channel</option>
-            <option value="anchored_vwap">Anchored VWAP</option>
-            <option value="bollinger">Bollinger Bands</option>
-            <option value="rsi">RSI</option>
-            <option value="ichimoku">Ichimoku Cloud</option>
-            <option value="fibonacci">Fibonacci Retracement</option>
-            <option value="volume_profile">Volume Profile</option>
+            <!-- Options will be populated dynamically by JS -->
           </select>
         </div>
         <div class="col-md-2 d-flex align-items-end">
@@ -78,7 +69,7 @@
         <!-- Add more as needed -->
       </div>
       <div id="volumeProfileWarning" class="alert alert-warning" style="display:none;">No volume profile data available for this range.</div>
-      <div id="plotly-chart" style="height:600px;"></div>
+      <div id="plotly-chart" style="height:900px;"></div>
     </div>
   </div>
 </div>
@@ -99,6 +90,23 @@
     // Initialize Select2
     $('#symbolSelect').select2({placeholder: 'Select a symbol', allowClear: false, width: '100%'});
     $('#indicatorSelect').select2({placeholder: 'Select indicators', width: '100%'});
+    // Dynamically populate indicator selector
+    fetch('/api/indicator_choices/')
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById('indicatorSelect');
+            select.innerHTML = '';
+            data.indicators.forEach(ind => {
+                const opt = document.createElement('option');
+                opt.value = ind.value;
+                opt.textContent = ind.label;
+                select.appendChild(opt);
+            });
+            // If using Select2 or similar, trigger update
+            if (window.jQuery && $(select).data('select2')) {
+                $(select).trigger('change.select2');
+            }
+        });
   });
 </script>
 {% endblock %}

@@ -553,6 +553,16 @@ def get_ohlcv_and_indicators(request):
         for col in ['open', 'high', 'low', 'close', 'volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         # Add indicators robustly
+        vol_profile = pd.DataFrame()  # Always define this here
+        try:
+            if 'volume_profile' in indicators and all(x in df for x in ['close', 'low', 'high', 'volume']):
+                from analysis.indicators import volume_profile
+                vol_profile = volume_profile(df)
+                if not vol_profile.empty and 'price_bin' in vol_profile.columns:
+                    vol_profile['price_bin'] = vol_profile['price_bin'].apply(lambda x: str(x) if not pd.isnull(x) else "")
+        except Exception as e:
+            logger.error(f"Volume Profile error: {e}")
+            vol_profile = pd.DataFrame()
         try:
             if 'ema_20' in indicators and 'close' in df:
                 ma = modifiers.get('ema_20', {}).get('ma', 20)
@@ -620,16 +630,58 @@ def get_ohlcv_and_indicators(request):
         except Exception as e:
             logger.error(f"Fibonacci error: {e}")
         try:
-            if 'volume_profile' in indicators and all(x in df for x in ['close', 'low', 'high', 'volume']):
-                from analysis.indicators import volume_profile
-                vol_profile = volume_profile(df)
-                if not vol_profile.empty and 'price_bin' in vol_profile.columns:
-                    vol_profile['price_bin'] = vol_profile['price_bin'].apply(lambda x: str(x) if not pd.isnull(x) else "")
-            else:
-                vol_profile = pd.DataFrame()
+            if 'adx' in indicators and all(x in df for x in ['high', 'low', 'close']):
+                from analysis.indicators import adx
+                df['adx'] = adx(df)
         except Exception as e:
-            logger.error(f"Volume Profile error: {e}")
-            vol_profile = pd.DataFrame()
+            logger.error(f"ADX error: {e}")
+        try:
+            if 'parabolic_sar' in indicators and all(x in df for x in ['high', 'low', 'close']):
+                from analysis.indicators import parabolic_sar
+                df['parabolic_sar'] = parabolic_sar(df)
+        except Exception as e:
+            logger.error(f"Parabolic SAR error: {e}")
+        try:
+            if 'obv' in indicators and all(x in df for x in ['close', 'volume']):
+                from analysis.indicators import obv
+                df['obv'] = obv(df)
+        except Exception as e:
+            logger.error(f"OBV error: {e}")
+        try:
+            if 'vpt' in indicators and all(x in df for x in ['close', 'volume']):
+                from analysis.indicators import vpt
+                df['vpt'] = vpt(df)
+        except Exception as e:
+            logger.error(f"VPT error: {e}")
+        try:
+            if 'cmf' in indicators and all(x in df for x in ['high', 'low', 'close', 'volume']):
+                from analysis.indicators import chaikin_money_flow
+                df['cmf'] = chaikin_money_flow(df)
+        except Exception as e:
+            logger.error(f"CMF error: {e}")
+        try:
+            if 'atr' in indicators and all(x in df for x in ['high', 'low', 'close']):
+                from analysis.indicators import atr
+                df['atr'] = atr(df)
+        except Exception as e:
+            logger.error(f"ATR error: {e}")
+        try:
+            if 'keltner' in indicators and all(x in df for x in ['high', 'low', 'close']):
+                from analysis.indicators import keltner_channels
+                kc = keltner_channels(df)
+                df['kc_middle'] = kc['kc_middle']
+                df['kc_upper'] = kc['kc_upper']
+                df['kc_lower'] = kc['kc_lower']
+        except Exception as e:
+            logger.error(f"Keltner Channels error: {e}")
+        try:
+            if 'fractals' in indicators and all(x in df for x in ['high', 'low']):
+                from analysis.indicators import fractals
+                fr = fractals(df)
+                df['fractal_high'] = fr['fractal_high']
+                df['fractal_low'] = fr['fractal_low']
+        except Exception as e:
+            logger.error(f"Fractals error: {e}")
     else:
         vol_profile = pd.DataFrame()
         return JsonResponse({'error': 'No data found'}, status=404)
@@ -638,6 +690,8 @@ def get_ohlcv_and_indicators(request):
         if not vol_profile.empty:
             vol_profile = vol_profile.replace({np.nan: None})
         data = df.to_dict(orient='records')
+        # Debug log for volume profile and data
+        logger.info(f"Returning {len(data)} OHLCV rows and {len(vol_profile) if not vol_profile.empty else 0} volume profile bins. Sample vol_profile: {vol_profile.head(3).to_dict(orient='records') if not vol_profile.empty else '[]'}")
         return JsonResponse({'data': data, 'volume_profile': vol_profile.to_dict(orient='records') if not vol_profile.empty else []})
     except Exception as e:
         logger.error(f"Top-level error in get_ohlcv_and_indicators: {e}")
@@ -646,3 +700,12 @@ def get_ohlcv_and_indicators(request):
 def interactive_dashboard(request):
     all_symbols = get_all_symbols()
     return render(request, 'stocks/interactive_dashboard.html', {'all_symbols': all_symbols})
+
+def api_indicator_choices(request):
+    from analysis.indicators import INDICATOR_CHOICES
+    return JsonResponse({
+        'indicators': [
+            {'value': value, 'label': label}
+            for value, label in INDICATOR_CHOICES
+        ]
+    })

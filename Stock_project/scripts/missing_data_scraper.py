@@ -113,7 +113,7 @@ def scrape_stock_history(symbol, driver):
                 logger.warning(f"Invalid date format: {date_str}")
                 continue
             # TEMP: Set cutoff to a very old date for testing
-            if row_date <= datetime.strptime("2025/06/24", "%Y/%m/%d"):
+            if row_date <= datetime.strptime("2025/06/30", "%Y/%m/%d"):
                 logger.info(f"{symbol}: Hit cutoff at {date_str}, stopping for this stock.")
                 stop_scraping = True
                 break  # Stop processing further rows on this page
