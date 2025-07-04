@@ -13,6 +13,12 @@ import numpy as np
 from analysis.analysis_service import AnalysisService
 from analysis.statistical_service import generate_forecast_graph, generate_forecast_data, generate_and_save_forecast_image
 from analysis.indicators import ema, macd, stochastic_oscillator, donchian_channel, anchored_vwap
+from analysis.strategies import (
+    compute_indicators,
+    trend_following_signals, mean_reversion_signals, breakout_signals, reversal_signals, divergence_signals,
+    momentum_breakout_signals, vwap_reversion_signals, smart_money_divergence_signals, volatility_expansion_fade_signals,
+    trend_pullback_signals, cloud_crossover_signals, composite_score_signals
+)
 
 
 # Set up logging
@@ -709,3 +715,71 @@ def api_indicator_choices(request):
             for value, label in INDICATOR_CHOICES
         ]
     })
+
+@require_GET
+def api_strategy_signals(request):
+    """
+    API endpoint to get buy/sell signals for a given strategy and stock symbol.
+    Params: symbol, strategy, start, end
+    Returns: {"signals": [{"date":..., "price":..., "type":...}, ...]}
+    """
+    STRATEGY_MAP = {
+        "Trend Following": trend_following_signals,
+        "Mean Reversion": mean_reversion_signals,
+        "Breakout": breakout_signals,
+        "Reversal": reversal_signals,
+        "Divergence": divergence_signals,
+        "Momentum Breakout": momentum_breakout_signals,
+        "VWAP Reversion": vwap_reversion_signals,
+        "Smart Money Divergence": smart_money_divergence_signals,
+        "Volatility Expansion Fade": volatility_expansion_fade_signals,
+        "Trend-Pullback": trend_pullback_signals,
+        "Cloud Crossover": cloud_crossover_signals,
+        "Composite Score": composite_score_signals,
+    }
+    symbol = request.GET.get('symbol')
+    strategy = request.GET.get('strategy')
+    start = request.GET.get('start')
+    end = request.GET.get('end')
+    if not symbol or not strategy or not start or not end:
+        return JsonResponse({'error': 'Missing required parameters'}, status=400)
+    if strategy not in STRATEGY_MAP:
+        return JsonResponse({'error': f'Unknown strategy: {strategy}'}, status=400)
+    try:
+        service = StockService()
+        df = service.get_stock_data_df(symbol)
+        logger.info(f"Loaded raw df shape: {df.shape}, columns: {list(df.columns)}")
+        if df.empty:
+            return JsonResponse({'signals': []})
+        # Ensure index is datetime
+        if not pd.api.types.is_datetime64_any_dtype(df.index):
+            if 'date' in df.columns:
+                df.index = pd.to_datetime(df['date'])
+            else:
+                df.index = pd.to_datetime(df.index)
+        def ensure_utc(dt):
+            ts = pd.to_datetime(dt)
+            if ts.tzinfo is None or ts.tz is None:
+                return ts.tz_localize('UTC')
+            return ts
+        start_dt = ensure_utc(start)
+        end_dt = ensure_utc(end)
+        df = df[(df.index >= start_dt) & (df.index <= end_dt)]
+        logger.info(f"After date filter: {df.shape}, index: {df.index[:5]}")
+        if df.empty:
+            return JsonResponse({'signals': []})
+        df = compute_indicators(df)
+        logger.info(f"After indicators: {df.shape}, columns: {list(df.columns)}")
+        signals = STRATEGY_MAP[strategy](df)
+        logger.info(f"Signals generated: {len(signals)}")
+        # Format for frontend: {date, price, type}
+        formatted = [{
+            'date': s['date'],
+            'price': s['price'],
+            'type': s['signal'].lower()
+        } for s in signals]
+        return JsonResponse({'signals': formatted})
+    except Exception as e:
+        import traceback
+        logger.error(f"Error in api_strategy_signals: {e}\n{traceback.format_exc()}")
+        return JsonResponse({'error': str(e)}, status=500)

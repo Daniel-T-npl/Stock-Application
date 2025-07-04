@@ -1,4 +1,32 @@
 document.addEventListener('DOMContentLoaded', function() {
+    // === Strategy to Indicator Mapping ===
+    const strategyIndicators = {
+        "Trend Following": ["ema_20", "donchian"],
+        "Mean Reversion": ["rsi", "bollinger"],
+        "Breakout": ["donchian"],
+        "Reversal": ["rsi", "bollinger"],
+        "Divergence": ["macd", "rsi"],
+        "Momentum Breakout": ["ema_20", "donchian"],
+        "VWAP Reversion": ["anchored_vwap", "bollinger"],
+        "Smart Money Divergence": ["macd", "rsi"],
+        "Volatility Expansion Fade": ["bollinger", "keltner"],
+        "Trend-Pullback": ["ema_20", "rsi"],
+        "Cloud Crossover": ["ichimoku"],
+        "Composite Score": ["ema_20", "rsi", "bollinger", "macd"]
+    };
+
+    // === Populate Strategy Dropdown ===
+    const strategySelect = document.getElementById('strategySelect');
+    if (strategySelect) {
+        strategySelect.innerHTML = '<option value="">(None)</option>';
+        Object.keys(strategyIndicators).forEach(strategy => {
+            const opt = document.createElement('option');
+            opt.value = strategy;
+            opt.textContent = strategy;
+            strategySelect.appendChild(opt);
+        });
+    }
+
     // Set default date range: last 1 year
     const endDateInput = document.getElementById('endDate');
     const startDateInput = document.getElementById('startDate');
@@ -596,6 +624,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     const warning = document.getElementById('volumeProfileWarning');
                     if (warning) warning.style.display = 'none';
                 }
+                // At the end of fetchAndPlot, call fetchAndOverlaySignals
+                fetchAndOverlaySignals();
             });
     }
     document.getElementById('updateChart').addEventListener('click', fetchAndPlot);
@@ -661,4 +691,127 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     // Also update chart when Anchored VWAP start date changes
     document.getElementById('anchored_vwap_start').addEventListener('change', fetchAndPlot);
+    // === Strategy Selection Logic ===
+    if (strategySelect) {
+        strategySelect.addEventListener('change', function() {
+            const selectedStrategy = strategySelect.value;
+            const indicatorSelect = document.getElementById('indicatorSelect');
+            if (!selectedStrategy || !strategyIndicators[selectedStrategy]) {
+                // If (None) selected, do not change indicators
+                fetchAndOverlaySignals();
+                return;
+            }
+            const indicators = strategyIndicators[selectedStrategy];
+            // Deselect all
+            Array.from(indicatorSelect.options).forEach(opt => { opt.selected = false; });
+            // Select only those needed
+            Array.from(indicatorSelect.options).forEach(opt => {
+                if (indicators.includes(opt.value)) {
+                    opt.selected = true;
+                }
+            });
+            // If using Select2 or similar, trigger update
+            if (window.jQuery && $(indicatorSelect).data('select2')) {
+                $(indicatorSelect).trigger('change.select2');
+            } else {
+                // Otherwise, trigger change event for vanilla JS
+                indicatorSelect.dispatchEvent(new Event('change'));
+            }
+            // After updating indicators, call fetchAndOverlaySignals
+            fetchAndOverlaySignals();
+        });
+    }
+    // === Fetch and Overlay Buy/Sell Signals ===
+    function fetchAndOverlaySignals() {
+        console.log('fetchAndOverlaySignals called');
+        const selectedStrategy = strategySelect ? strategySelect.value : null;
+        const symbol = getSelectedSymbol();
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        if (!selectedStrategy) {
+            // No strategy selected, remove any existing signal overlays
+            removeSignalMarkers();
+            return;
+        }
+        const url = `/api/strategy_signals/?symbol=${symbol}&strategy=${encodeURIComponent(selectedStrategy)}&start=${startDate}&end=${endDate}`;
+        console.log('Fetching strategy signals from:', url);
+        fetch(url)
+            .then(response => response.json())
+            .then(json => {
+                if (!json.signals) {
+                    removeSignalMarkers();
+                    return;
+                }
+                overlaySignalMarkers(json.signals);
+            })
+            .catch(err => {
+                console.error('Error fetching strategy signals:', err);
+                removeSignalMarkers();
+            });
+    }
+
+    // === Overlay Signal Markers on Plotly Chart ===
+    function overlaySignalMarkers(signals) {
+        // Remove previous signal traces
+        removeSignalMarkers();
+        if (!signals || signals.length === 0) return;
+        const buySignals = signals.filter(s => s.type === 'buy');
+        const sellSignals = signals.filter(s => s.type === 'sell');
+        // Add buy markers (green up arrow)
+        const buyTrace = {
+            x: buySignals.map(s => s.date),
+            y: buySignals.map(s => s.price),
+            mode: 'markers',
+            name: 'Buy',
+            marker: {
+                symbol: 'arrow-up',
+                color: 'lime',
+                size: 20,
+                line: { color: 'white', width: 3 }
+            },
+            type: 'scatter',
+            yaxis: 'y1',
+            customdata: buySignals,
+            hovertemplate: 'Buy: %{y} on %{x}<extra></extra>',
+            showlegend: true,
+            uid: 'buy-signal-trace'
+        };
+        // Add sell markers (red down arrow)
+        const sellTrace = {
+            x: sellSignals.map(s => s.date),
+            y: sellSignals.map(s => s.price),
+            mode: 'markers',
+            name: 'Sell',
+            marker: {
+                symbol: 'arrow-down',
+                color: 'red',
+                size: 20,
+                line: { color: 'white', width: 3 }
+            },
+            type: 'scatter',
+            yaxis: 'y1',
+            customdata: sellSignals,
+            hovertemplate: 'Sell: %{y} on %{x}<extra></extra>',
+            showlegend: true,
+            uid: 'sell-signal-trace'
+        };
+        // Add to chart
+        Plotly.addTraces('plotly-chart', [buyTrace, sellTrace]);
+    }
+
+    // === Remove Signal Markers from Plotly Chart ===
+    function removeSignalMarkers() {
+        const chartDiv = document.getElementById('plotly-chart');
+        if (!chartDiv || !chartDiv.data) return;
+        // Remove traces with our custom uids
+        const toRemove = [];
+        chartDiv.data.forEach((trace, idx) => {
+            if (trace.uid === 'buy-signal-trace' || trace.uid === 'sell-signal-trace') {
+                toRemove.push(idx);
+            }
+        });
+        if (toRemove.length > 0) {
+            Plotly.deleteTraces('plotly-chart', toRemove);
+        }
+    }
 }); 

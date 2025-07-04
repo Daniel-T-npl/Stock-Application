@@ -22,4 +22,5 @@ urlpatterns = [
     path('api/ohlcv_indicators/', views.get_ohlcv_and_indicators, name='ohlcv_indicators_api'),
     path('api/indicator_choices/', views.api_indicator_choices, name='indicator_choices_api'),
     path('dashboard/', views.interactive_dashboard, name='interactive_dashboard'),
+    path('api/strategy_signals/', views.api_strategy_signals, name='api_strategy_signals'),
 ] 
